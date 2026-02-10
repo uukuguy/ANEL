@@ -1,0 +1,43 @@
+[project]
+name = "qmd-python"
+version = "0.1.0"
+description = "QMD - AI-powered search with hybrid BM25 and vector search"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.9.0",
+    "pyyaml>=6.0",
+    "lancedb>=0.16.0",
+    "openai>=1.0.0",
+    "anthropic>=0.25.0",
+    "mcp>=0.1.0",
+    "rich>=13.0.0",
+    "python-dotenv>=1.0.0",
+    "glob2>=0.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.project"
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true

@@ -1,0 +1,40 @@
+# QMD 配置文件
+# 位置: ~/.config/qmd/index.yaml
+
+# BM25 后端配置
+bm25:
+  backend: "sqlite_fts5"  # sqlite_fts5 或 lancedb
+
+# 向量后端配置
+vector:
+  backend: "qmd_builtin"  # qmd_builtin 或 lancedb
+  model: "embeddinggemma-300M"
+
+# 集合配置
+collections:
+  - name: "notes"
+    path: "~/notes"
+    pattern: "**/*.md"
+    description: "个人笔记"
+
+  - name: "docs"
+    path: "~/projects/*/docs"
+    pattern: "**/*.md"
+    description: "项目文档"
+
+# LLM 模型配置
+models:
+  embed:
+    local: "embeddinggemma-300M"
+    remote: "text-embedding-3-small"
+
+  rerank:
+    local: "qwen3-reranker-0.6b"
+    remote: "rerank-1"
+
+  query_expansion:
+    local: "qmd-query-expansion-1.7b"
+    remote: "gpt-4"
+
+# 缓存路径
+cache_path: "~/.cache/qmd"

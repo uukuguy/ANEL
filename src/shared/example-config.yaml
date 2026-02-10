@@ -1,0 +1,72 @@
+# QMD 多语言实现 - 配置示例
+# 此配置适用于 qmd-rust, qmd-go, qmd-python
+
+# ===================
+# BM25 后端配置
+# ===================
+bm25:
+  backend: "sqlite_fts5"  # 缺省: SQLite FTS5 (与原 QMD 一致)
+  # backend: "lancedb"     # 可选: LanceDB FTS
+
+# ===================
+# 向量后端配置
+# ===================
+vector:
+  backend: "qmd_builtin"      # 缺省: QMD 内置 (sqlite-vec)
+  # backend: "lancedb"        # 可选: LanceDB 向量索引
+  model: "embeddinggemma-300M"  # 嵌入模型
+
+# ===================
+# 集合配置
+# ===================
+collections:
+  # 集合 1: 笔记
+  - name: "notes"
+    path: "~/notes"               # 路径
+    pattern: "**/*.md"            # 文件匹配模式
+    description: "个人 Markdown 笔记"
+
+  # 集合 2: 文档
+  - name: "docs"
+    path: "~/projects"
+    pattern: "**/*.{md,txt,rst}"
+    description: "项目文档"
+
+  # 集合 3: 代码
+  - name: "code"
+    path: "~/projects"
+    pattern: "**/*.{go,rs,py,ts,js}"
+    description: "源代码文件"
+
+# ===================
+# LLM 模型配置
+# ===================
+models:
+  # 嵌入模型
+  embed:
+    local: "embeddinggemma-300M"  # 本地: GGUF 模型
+    remote: "text-embedding-3-small"  # 远程: OpenAI API
+
+  # 重排序模型
+  rerank:
+    local: "qwen3-reranker-0.6b"  # 本地: GGUF 模型
+    remote: "rerank-1"             # 远程: 第三方 API
+
+  # 查询扩展模型
+  query_expansion:
+    local: "qmd-query-expansion-1.7b"  # 本地: GGUF 模型
+    remote: "gpt-4"                    # 远程: OpenAI API
+
+# ===================
+# 缓存配置
+# ===================
+cache_path: "~/.cache/qmd"
+
+# ===================
+# 使用说明
+# ===================
+# 1. 复制此文件到 ~/.config/qmd/index.yaml
+# 2. 根据需要修改配置
+# 3. 运行 `qmd collection add <path>` 添加集合
+# 4. 运行 `qmd embed` 生成向量索引
+# 5. 使用 `qmd search`, `qmd vsearch`, `qmd query` 搜索
