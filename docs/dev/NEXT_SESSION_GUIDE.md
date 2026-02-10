@@ -1,286 +1,212 @@
-# QMD 下一阶段开发指南
+# 下一阶段开发指南
 
-## 一、当前项目状态
+## 当前进度
 
-### 已完成工作
+### 已完成 ✅
 
-| 里程碑 | 状态 | 说明 |
-|--------|------|------|
-| TypeScript/Bun 架构分析 | ✅ 完成 | 核心模块职责和数据流已明确 |
-| 跨语言移植评估 | ✅ 完成 | Go 被选为主要目标语言 |
-| 三级搜索系统理解 | ✅ 完成 | BM25 + 向量 + RRF 融合 + LLM 重排序 |
+1. **Rust 实现 (qmd-rust)** - 基础框架
+   - CLI 命令模块 (collection, context, get, multi-get, search, vsearch, query, embed, update, status, cleanup, mcp, agent)
+   - 配置管理模块 (YAML 配置加载/保存)
+   - SQLite FTS5 存储后端 (Schema, BM25 搜索)
+   - LLM 路由层 (本地/远程双模式 placeholder)
+   - MCP Server 框架
+   - 输出格式化
 
-### 待开始工作
+2. **Python 实现 (qmd-python)** - 基础框架
+   - Typer CLI 命令
+   - 配置管理
+   - SQLite FTS5 存储后端
+   - LLM 路由层
+   - MCP Server
 
-- Go 语言移植实现
-- MCP 协议支持
-- 性能优化和验证
+3. **Go 实现 (qmd-go)** - 基础框架
+   - Cobra CLI 命令
+   - 配置管理
+   - SQLite FTS5 存储后端
+   - LLM 路由层
+   - MCP Server
 
----
+4. **共享资源**
+   - 配置文件模板
+   - 项目文档
 
-## 二、Go 移植路线图
+### 待完成 ❌
 
-### 阶段一：项目初始化与基础设施
-
-```
-目标: 创建 Go 项目脚手架，搭建基础框架
-
-任务清单:
-├── [ ] 1.1 创建 Go 模块 (go.mod)
-│   ├── 模块名: github.com/tobi/qmd-go
-│   └── Go 版本: 1.21+
-│
-├── [ ] 1.2 配置管理
-│   ├── YAML 解析: gopkg.in/yaml.v3
-│   ├── 配置验证: go-playground/validator
-│   └── 目录: cmd/, internal/, pkg/
-│
-├── [ ] 1.3 日志系统
-│   └── zerolog (结构化日志)
-│
-└── [ ] 1.4 错误处理
-    └── 定义自定义错误类型
-```
-
-**目录结构建议**:
-```
-qmd-go/
-├── cmd/
-│   └── qmd/
-│       └── main.go           # CLI 入口
-├── internal/
-│   ├── config/               # 配置解析
-│   ├── store/                # 数据库层
-│   ├── search/               # 搜索算法
-│   ├── llm/                  # LLM 集成
-│   └── mcp/                  # MCP 协议
-├── pkg/
-│   ├── collections/          # 集合管理
-│   └── formatter/            # 输出格式化
-├── test/                      # 测试数据
-├── qmd.yaml                  # 配置文件
-└── go.mod
-```
-
-### 阶段二：SQLite 基础与 FTS5 搜索
-
-```
-目标: 实现 SQLite 集成和 BM25 全文搜索
-
-技术选型:
-├── 数据库驱动: mattn/go-sqlite3 (CGO) 或 modernc.org/sqlite (纯Go)
-├── 全文搜索: SQLite FTS5
-└── 向量扩展: sqlite-vec (需验证 Go 绑定)
-
-核心接口:
-├── OpenDB(path) -> *sql.DB
-├── IndexDocument(doc) error
-├── SearchBM25(query) -> []Result
-└── ListCollections() []Collection
-```
-
-### 阶段三：向量搜索与 RRF 融合
-
-```
-目标: 实现语义搜索和排名融合
-
-依赖验证:
-├── sqlite-vec Go 绑定状态
-├── 嵌入模型调用接口
-└── 余弦相似度计算
-
-RRF 实现:
-公式: RRF(d) = Σ 1/(k + r(d))
-参数: k = 60, 原始查询权重 2x
-```
-
-### 阶段四：LLM 集成
-
-```
-目标: 实现查询扩展和 LLM 重排序
-
-集成选项:
-├── llama.go: https://github.com/go-skllama/llama.go
-├── go-llama: https://github.com/go-skynet/go-llama.cpp
-└── candle: Rust 绑定 (通过 cgo)
-
-LLM 功能:
-├── 查询扩展: 1 个变体生成
-├── 重排序: Yes/No + logprob 评分
-└── 嵌入: 300M 参数模型
-```
-
-### 阶段五：MCP 协议支持
-
-```
-目标: 实现 MCP 服务器
-
-评估选项:
-├── 检查现有 Go MCP 实现
-├── 参考 TypeScript SDK 设计
-└── 自定义实现必要部分
-
-工具定义:
-├── qmd_search: 混合搜索
-├── qmd_vsearch: 向量搜索
-├── qmd_index: 文档索引
-└── qmd_list: 列出集合
-```
+1. **RRF 融合算法** - 当前仅返回 BM25 结果
+2. **LanceDB 后端** - 未实现
+3. **查询扩展** - 未实现
+4. **Agent 交互模式** - 仅框架
+5. **单元测试** - 无测试用例
+6. **sqlite-vec 集成** - 向量搜索未完成
 
 ---
 
-## 三、技术决策要点
+## 下阶段重点任务
 
-### 3.1 数据库引擎选择
+### 1. 完善 Store 模块 (优先级: 高)
 
-| 方案 | 优点 | 缺点 | 推荐场景 |
-|------|------|------|----------|
-| mattn/go-sqlite3 | 功能完整、稳定 | 需要 CGO | 生产环境 |
-| modernc.org/sqlite | 纯 Go、无 CGO | 功能受限 | 跨平台部署 |
+#### RRF 融合算法
 
-**建议**: 初期使用 `mattn/go-sqlite3`，后期评估纯 Go 替代方案
+文件: `src/qmd-rust/src/store/mod.rs`
 
-### 3.2 向量搜索方案
+```rust
+fn rrf_fusion(
+    result_lists: &[Vec<SearchResult>],
+    weights: Option<Vec<f32>>,
+    k: u32,
+) -> Vec<SearchResult> {
+    // 当前实现是 placeholder
+    // 需要实现完整的 RRF 算法
+}
+```
 
-| 方案 | 优点 | 缺点 | 状态 |
-|------|------|------|------|
-| sqlite-vec | 与 FTS5 集成好 | Go 绑定待验证 | 待测试 |
-| faiss | 成熟、高性能 | 体积大 | 备选 |
-| annoy | 内存占用低 | 仅 ANN | 备选 |
+#### sqlite-vec 向量搜索
 
-**建议**: 优先 sqlite-vec，faiss 作为备选
+需要在 Rust 实现中添加：
 
-### 3.3 LLM 推理方案
+```rust
+fn vector_sqlite_search(&self, query: &str, options: SearchOptions) -> Result<Vec<SearchResult>> {
+    // 1. 生成查询嵌入
+    let embedding = self.llm.embed(&[query]).await?;
+    // 2. 使用 sqlite-vec 搜索
+    // 3. 返回结果
+}
+```
 
-| 方案 | 优点 | 缺点 |
-|------|------|------|
-| llama.go | 纯 Go 实现 | 活跃度一般 |
-| llama-cpp-python | 成熟 | 需要 Python |
-| 外部 API | 无本地依赖 | 隐私/网络 |
+### 2. 添加 LanceDB 后端 (优先级: 中)
 
-**建议**: llama.go 或外部 API
+三个实现都需要添加 LanceDB 支持：
 
-### 3.4 部署模式
+| 实现 | 需要添加的模块 |
+|------|---------------|
+| Rust | `src/qmd-rust/src/store/lancedb_fts.rs` |
+| Go | `internal/store/lancedb.go` |
+| Python | `src/store/lancedb.py` |
 
-| 模式 | 描述 | 适用场景 |
-|------|------|----------|
-| 嵌入式 | CLI + 本地 LLM | 个人使用 |
-| 服务化 | REST/gRPC API | 多用户/共享 |
-| MCP Server | Claude Agent 集成 | Agent 场景 |
+### 3. 实现查询扩展 (优先级: 中)
 
----
+LLM 模块需要实现 `expand_query` 方法：
 
-## 四、关键注意事项
+```rust
+pub fn expand_query(&self, query: &str) -> Result<Vec<String>> {
+    // 使用 LLM 生成查询变体
+    // 返回原始查询 + 2-3 个变体
+}
+```
 
-### 4.1 性能考量
+### 4. Agent 交互模式 (优先级: 低)
 
-- **GC 影响**: Go GC 可能影响 LLM 推理延迟
-- **连接池**: SQLite 需配置合理的 busy_timeout
-- **预编译**: 常用查询使用 prepared statement
-- **内存映射**: 大型索引考虑 memory-mapped 文件
+完善 `cli/agent.rs`：
 
-### 4.2 兼容性保证
+```rust
+fn run_interactive_agent(&self) -> Result<()> {
+    loop {
+        let query = self.read_user_input()?;
+        let intent = self.classify_intent(&query)?;
 
-| 方面 | 当前格式 | 迁移策略 |
-|------|----------|----------|
-| YAML 配置 | 标准 YAML | 完全兼容 |
-| 数据库索引 | SQLite + sqlite-vec | 复用现有索引 |
-| API 接口 | JSON 输出 | 保持一致 |
+        match intent {
+            Intent::Keyword => self.bm25_search(&query)?,
+            Intent::Semantic => self.vector_search(&query)?,
+            Intent::Complex => self.hybrid_search(&query)?,
+        }
+    }
+}
+```
 
-### 4.3 测试策略
+### 5. 测试 (优先级: 高)
+
+添加单元测试：
 
 ```
-测试金字塔:
-         ┌─────────┐
-        /   E2E    \      <- 端到端测试 (CLI 完整流程)
-       /────────────\
-      /  集成测试    \    <- 模块间交互
-     /────────────────\
-    /    单元测试      \  <- 核心算法 (BM25, RRF)
-   /────────────────────\
-
-优先级:
-1. 核心算法单元测试 (BM25, RRF, 余弦相似度)
-2. SQLite 集成测试
-3. 搜索质量评估测试
-4. 与 TypeScript 版本性能对比
+tests/
+├── test_rrf.py          # RRF 融合测试
+├── test_search.py       # 搜索一致性测试
+├── test_backends.py     # 后端一致性测试
+└── test_formatters.py   # 输出格式化测试
 ```
 
 ---
 
-## 五、开发资源
+## 快速开始
 
-### 5.1 参考项目
+```bash
+# Rust 构建测试
+cd src/qmd-rust
+cargo build --release
 
-| 项目 | 用途 | URL |
-|------|------|-----|
-| llama.go | Go LLM 推理 | github.com/go-skllama/llama.go |
-| modernc.org/sqlite | 纯 Go SQLite | pkg.go.dev/modernc.org/sqlite |
-| sqlite-vec | 向量搜索 | github.com/asg017/sqlite-vec |
-| zerolog | 日志框架 | github.com/rs/zerolog |
-| cobra | CLI 框架 | github.com/spf13/cobra |
+# Python 安装测试
+cd src/qmd-python
+pip install -e .
 
-### 5.2 原版代码位置
-
-```
-原始 TypeScript 实现:
-├── src/store.ts      <- 核心存储和搜索逻辑
-├── src/llm.ts        <- LLM 抽象层
-├── src/qmd.ts        <- CLI 入口
-├── src/collections.ts <- 配置管理
-└── src/mcp.ts        <- MCP 服务器
+# Go 构建测试
+cd src/qmd-go
+go build -o qmd ./cmd/qmd
 ```
 
-### 5.3 模型配置参考
+---
 
-| 用途 | 模型 | 大小 | 说明 |
-|------|------|------|------|
-| 嵌入 | embeddinggemma-300M-Q8_0 | ~300MB | 内容向量化 |
-| 重排序 | qwen3-reranker-0.6b-q8_0 | ~640MB | 结果重排序 |
-| 查询扩展 | qmd-query-expansion-1.7B-q4_k_m | ~1.1GB | 查询增强 |
+## 检查清单
+
+### 代码质量
+- [ ] Rust: `cargo clippy` 无警告
+- [ ] Python: `ruff check .` 无错误
+- [ ] Go: `go vet ./...` 无错误
+
+### 功能验证
+- [ ] CLI help 输出正确
+- [ ] 配置文件加载成功
+- [ ] SQLite FTS5 搜索返回结果
+- [ ] RRF 融合排序正确
+
+### 文档
+- [ ] API 文档更新
+- [ ] CLI 用法示例
+- [ ] 配置文件说明
 
 ---
 
-## 六、下一步行动
+## 注意事项
 
-### 立即执行
+### 1. Schema 兼容性
+所有实现必须使用相同的 SQLite Schema：
 
-1. **创建 Go 项目脚手架**
-   ```bash
-   mkdir qmd-go && cd qmd-go
-   go mod init github.com/tobi/qmd-go
-   ```
+```sql
+CREATE VIRTUAL TABLE documents_fts USING fts5(
+    filepath, title, body,
+    tokenize='porter unicode61'
+);
+```
 
-2. **验证 sqlite-vec Go 绑定可行性**
-   - 检查 mattn/go-sqlite3 是否支持 sqlite-vec
-   - 测试向量存储和检索
+### 2. CLI 参数兼容性
+必须与原 QMD 工具保持一致：
 
-3. **实现最小可行产品 (MVP)**
-   - 最小功能: CLI + YAML 配置 + FTS5 搜索
+```bash
+qmd search <query> [-n <num>] [-c <collection>] [--all]
+qmd vsearch <query> [-n <num>] [-c <collection>] [--all]
+qmd query <query> [-n <num>] [-c <collection>] [--all]
+```
 
-### 短期目标 (1-2 周)
+### 3. 路径处理
+使用 `shellexpand` 处理 `~` 路径：
 
-- [ ] 完成 SQLite FTS5 搜索实现
-- [ ] 验证向量搜索可行性
-- [ ] 通过基准测试验证性能
+```rust
+let path = shellexpand::tilde("~/notes").parse::<PathBuf>()?;
+```
 
-### 中期目标 (1 个月)
+### 4. 错误处理
+使用 `anyhow` 简化错误传播：
 
-- [ ] 完成完整搜索管道
-- [ ] 实现 RRF 融合
-- [ ] 集成 LLM 重排序
-
----
-
-## 七、风险与应对
-
-| 风险 | 可能性 | 影响 | 应对措施 |
-|------|--------|------|----------|
-| sqlite-vec Go 绑定不支持 | 中 | 高 | 切换到 faiss/annoy |
-| llama.go 不稳定 | 中 | 中 | 使用外部 API 作为备选 |
-| 性能不达预期 | 低 | 中 | 优化算法或使用 Rust |
-| MCP Go SDK 缺失 | 高 | 低 | 自定义实现核心功能 |
+```rust
+fn search(&self) -> Result<Vec<SearchResult>> {
+    // ... 实现
+    Ok(results)
+}
+```
 
 ---
 
-*文档更新日期: 2026-02-11*
+## 参考链接
+
+- [sqlite-vec](https://github.com/asg017/sqlite-vec)
+- [LanceDB Python](https://lancedb.github.io/lancedb/)
+- [RRF 融合算法](https://plg.uwaterloo.ca/~gvcormac/cormacksph04-rrf.pdf)
