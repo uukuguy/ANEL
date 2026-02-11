@@ -13,3 +13,6 @@ github.com/
 tmp/
 outputs/
 .DS_Store
+
+Cargo.lock
+target/

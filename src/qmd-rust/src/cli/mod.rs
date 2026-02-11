@@ -11,6 +11,20 @@ pub struct Cli {
     pub command: Commands,
 }
 
+// CLI submodule declarations
+pub mod collection;
+pub mod context;
+pub mod get;
+pub mod multi_get;
+pub mod search;
+pub mod vsearch;
+pub mod query;
+pub mod embed;
+pub mod update;
+pub mod status;
+pub mod cleanup;
+pub mod agent;
+
 /// Output format options
 #[derive(Debug, Clone, Args)]
 pub struct FormatOptions {
@@ -259,9 +273,4 @@ pub struct AgentArgs {
     /// MCP transport
     #[arg(long, default_value = "stdio")]
     pub transport: String,
-}
-
-/// Build the CLI parser
-pub fn build_cli() -> Cli {
-    Cli::parse()
 }

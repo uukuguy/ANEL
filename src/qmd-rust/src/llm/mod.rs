@@ -1,5 +1,6 @@
 use crate::config::Config;
 use anyhow::Result;
+use std::fmt;
 use std::path::PathBuf;
 
 /// Common query expansion terms for knowledge base searches
@@ -19,6 +20,15 @@ const EXPANSION_TERMS: &[(&str, &[&str])] = &[
 pub enum LLMProvider {
     Local,
     Remote,
+}
+
+impl fmt::Display for LLMProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LLMProvider::Local => write!(f, "local"),
+            LLMProvider::Remote => write!(f, "remote"),
+        }
+    }
 }
 
 /// Embedding result
@@ -129,7 +139,27 @@ impl Router {
             }
         }
 
-        anyhow::bail!("No embedder available");
+        anyhow::bail!("No embedder available")
+    }
+
+    /// Synchronous embedding wrapper
+    ///
+    /// Uses tokio runtime to run async embed() from sync context.
+    /// Useful for embedding queries in synchronous code paths.
+    pub fn embed_sync(&self, text: &str) -> Result<EmbeddingResult> {
+        let text_ref = &[text];
+        tokio::runtime::Handle::current().block_on(async {
+            self.embed(text_ref).await
+        })
+    }
+
+    /// Synchronous reranking wrapper
+    ///
+    /// Uses tokio runtime to run async rerank() from sync context.
+    pub fn rerank_sync(&self, query: &str, docs: &[crate::store::SearchResult]) -> Result<Vec<f32>> {
+        tokio::runtime::Handle::current().block_on(async {
+            self.rerank(query, docs).await
+        })
     }
 
     /// Rerank documents

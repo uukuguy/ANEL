@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::fs;
-use log::{info, warn};
+use log::info;
 
 const DEFAULT_CONFIG_PATH: &str = "~/.config/qmd/index.yaml";
 const DEFAULT_CACHE_PATH: &str = "~/.cache/qmd";
@@ -53,7 +53,7 @@ pub struct LLMModelConfig {
 }
 
 /// Configuration for LLM models
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModelsConfig {
     pub embed: Option<LLMModelConfig>,
     pub rerank: Option<LLMModelConfig>,
@@ -127,17 +127,8 @@ impl Config {
         if config_path.exists() {
             info!("Loading configuration from: {:?}", config_path);
             let content = fs::read_to_string(&config_path)?;
+            // serde's #[serde(default)] handles all defaults during deserialization
             let config: Config = serde_yaml::from_str(&content)?;
-
-            // Set defaults for missing values
-            let config = Config {
-                bm25: config.bm25.unwrap_or_default(),
-                vector: config.vector.unwrap_or_default(),
-                collections: config.collections.unwrap_or_default(),
-                models: config.models.unwrap_or_default(),
-                cache_path: config.cache_path.unwrap_or_else(default_cache_path),
-            };
-
             Ok(config)
         } else {
             info!("Configuration not found, using defaults");

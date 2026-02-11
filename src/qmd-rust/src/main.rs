@@ -1,13 +1,14 @@
-use crate::cli::{build_cli, Commands};
+use crate::cli::Commands;
 use crate::config::Config;
 use anyhow::{Context, Result};
+use clap::Parser;
 use log::info;
 
 mod cli;
 mod config;
 mod formatter;
 mod llm;
-mod mcp;
+// mod mcp;  // Temporarily disabled due to mcp-sdk dependency issues
 mod store;
 
 fn main() -> Result<()> {
@@ -18,69 +19,64 @@ fn main() -> Result<()> {
     let config = Config::load().context("Failed to load configuration")?;
 
     info!("Configuration loaded successfully");
-    info!("BM25 backend: {:?}", config.bm25_backend);
-    info!("Vector backend: {:?}", config.vector_backend);
+    info!("BM25 backend: {:?}", config.bm25.backend);
+    info!("Vector backend: {:?}", config.vector.backend);
 
-    // Build and parse CLI
-    let matches = build_cli().get_matches();
+    // Parse CLI arguments
+    let cli = cli::Cli::parse();
 
     // Dispatch commands
-    match matches.subcommand() {
-        Some((Commands::Collection(cmd), _)) => {
+    match &cli.command {
+        Commands::Collection(cmd) => {
             crate::cli::collection::handle(cmd, &config)?;
         }
-        Some((Commands::Context(cmd), _)) => {
+        Commands::Context(cmd) => {
             crate::cli::context::handle(cmd, &config)?;
         }
-        Some((Commands::Get(cmd), _)) => {
+        Commands::Get(cmd) => {
             crate::cli::get::handle(cmd, &config)?;
         }
-        Some((Commands::MultiGet(cmd), _)) => {
+        Commands::MultiGet(cmd) => {
             crate::cli::multi_get::handle(cmd, &config)?;
         }
-        Some((Commands::Search(cmd), _)) => {
+        Commands::Search(cmd) => {
             let store = store::Store::new(&config)?;
             crate::cli::search::handle(cmd, &store)?;
         }
-        Some((Commands::Vsearch(cmd), _)) => {
+        Commands::Vsearch(cmd) => {
             let store = store::Store::new(&config)?;
             crate::cli::vsearch::handle(cmd, &store)?;
         }
-        Some((Commands::Query(cmd), _)) => {
+        Commands::Query(cmd) => {
             let store = store::Store::new(&config)?;
             let llm = llm::Router::new(&config)?;
             crate::cli::query::handle(cmd, &store, &llm)?;
         }
-        Some((Commands::Embed(cmd), _)) => {
+        Commands::Embed(cmd) => {
             let store = store::Store::new(&config)?;
             let llm = llm::Router::new(&config)?;
             crate::cli::embed::handle(cmd, &store, &llm)?;
         }
-        Some((Commands::Update(cmd), _)) => {
+        Commands::Update(cmd) => {
             let store = store::Store::new(&config)?;
             crate::cli::update::handle(cmd, &store)?;
         }
-        Some((Commands::Status(cmd), _)) => {
+        Commands::Status(cmd) => {
             let store = store::Store::new(&config)?;
             crate::cli::status::handle(cmd, &store)?;
         }
-        Some((Commands::Cleanup(cmd), _)) => {
+        Commands::Cleanup(cmd) => {
             let store = store::Store::new(&config)?;
             crate::cli::cleanup::handle(cmd, &store)?;
         }
-        Some((Commands::Mcp(cmd), _)) => {
-            let store = store::Store::new(&config)?;
-            let llm = llm::Router::new(&config)?;
-            crate::mcp::run_server(cmd, &store, &llm)?;
+        Commands::Mcp(_cmd) => {
+            log::warn!("MCP server is temporarily disabled due to dependency issues");
+            log::info!("To re-enable, uncomment mcp-sdk in Cargo.toml and fix API compatibility");
         }
-        Some((Commands::Agent(cmd), _)) => {
+        Commands::Agent(cmd) => {
             let store = store::Store::new(&config)?;
             let llm = llm::Router::new(&config)?;
             crate::cli::agent::handle(cmd, &store, &llm)?;
-        }
-        None => {
-            // No subcommand, show help
-            print!("{}", matches.clone().usage());
         }
     }
 

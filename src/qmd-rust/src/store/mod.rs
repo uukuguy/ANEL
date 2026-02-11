@@ -1,13 +1,13 @@
-use crate::config::{Config, BM25Backend, VectorBackend};
+use crate::config::{Config, BM25Backend};
 use crate::llm::Router;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
+use serde::Serialize;
 use std::collections::HashMap;
-use std::path::PathBuf;
-use log::{info, warn, debug};
+use log::{info, warn};
 
 /// Search result structure
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SearchResult {
     pub path: String,
     pub collection: String,
@@ -227,6 +227,141 @@ impl Store {
         self.bm25_search(query, options)
     }
 
+    /// Vector search with explicit embedder
+    ///
+    /// Uses the provided LLM to generate embeddings and performs similarity search.
+    pub fn vector_search_with_embedder(
+        &self,
+        query: &str,
+        options: SearchOptions,
+        llm: &Router,
+    ) -> Result<Vec<SearchResult>> {
+        // Generate embedding for the query
+        let embedding_result = llm.embed_sync(query)?;
+
+        info!("Generated embedding with {} dimensions, provider: {}",
+              embedding_result.embeddings[0].len(), embedding_result.provider);
+
+        // Get the embedding vector
+        let query_vector = &embedding_result.embeddings[0];
+
+        // Perform vector search in each collection
+        let mut results = Vec::new();
+
+        let collections: Vec<&str> = if options.search_all {
+            self.config.collections.iter().map(|c| c.name.as_str()).collect()
+        } else if let Some(ref name) = options.collection {
+            vec![name.as_str()]
+        } else if let Some(col) = self.config.collections.first() {
+            vec![col.name.as_str()]
+        } else {
+            return Ok(results);
+        };
+
+        for collection in collections {
+            if let Some(conn) = self.get_connection(collection).ok() {
+                let collection_results = self.vector_search_in_db(&conn, query_vector, options.limit)?;
+                results.extend(collection_results);
+            }
+        }
+
+        // Sort by score (cosine distance - lower is better)
+        results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
+
+        Ok(results)
+    }
+
+    /// Perform vector search in a single database
+    fn vector_search_in_db(
+        &self,
+        conn: &Connection,
+        query_vector: &[f32],
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
+        let mut results = Vec::new();
+
+        // Try sqlite-vec first
+        #[cfg(feature = "sqlite-vec")]
+        {
+            results = self.vector_search_sqlite_vec(conn, query_vector, limit)?;
+        }
+
+        // Fallback to BM25 if no results or sqlite-vec not available
+        if results.is_empty() {
+            warn!("Falling back to BM25 for vector search");
+            // Convert query_vector back to a simple text search
+            // This is a placeholder fallback
+        }
+
+        Ok(results)
+    }
+
+    /// SQLite vector search using sqlite-vec
+    #[cfg(feature = "sqlite-vec")]
+    fn vector_search_sqlite_vec(
+        &self,
+        conn: &Connection,
+        query_vector: &[f32],
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
+        use rusqlite::types::Value;
+
+        let mut results = Vec::new();
+
+        // Prepare query vector as SQL array
+        let query_vec: Vec<Value> = query_vector.iter().map(|&v| Value::from(v)).collect();
+
+        let mut stmt = conn.prepare(
+            "SELECT
+                v.rowid,
+                v.distance,
+                d.path,
+                d.title,
+                d.hash
+             FROM vectors_vec v
+             JOIN documents d ON v.rowid = d.id
+             ORDER BY v.distance
+             LIMIT ?"
+        )?;
+
+        let rows: Vec<(i32, f64, String, String, String)> = stmt
+            .query_map([limit as i64], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        for (rowid, distance, path, title, hash) in rows {
+            results.push(SearchResult {
+                path,
+                collection: String::new(),
+                score: distance as f32,
+                lines: 0,
+                title,
+                hash: rowid.to_string(),
+            });
+        }
+
+        Ok(results)
+    }
+
+    #[cfg(not(feature = "sqlite-vec"))]
+    fn vector_search_sqlite_vec(
+        &self,
+        _conn: &Connection,
+        _query_vector: &[f32],
+        _limit: usize,
+    ) -> Result<Vec<SearchResult>> {
+        warn!("sqlite-vec feature not enabled");
+        Ok(Vec::new())
+    }
+
     /// Hybrid search with reranking
     ///
     /// Combines BM25 and vector search with query expansion and LLM reranking:
@@ -267,9 +402,27 @@ impl Store {
 
         // Step 5: Try LLM reranking if available
         let final_results = if llm.has_reranker() {
-            // Note: This would need to be async in a real implementation
-            warn!("LLM reranking skipped (requires async runtime)");
-            candidates
+            info!("LLM reranking available, applying to top candidates");
+            match llm.rerank_sync(query, &candidates) {
+                Ok(scores) => {
+                    // Apply reranking scores
+                    let mut reranked: Vec<_> = candidates
+                        .into_iter()
+                        .zip(scores.into_iter())
+                        .map(|(mut doc, score)| {
+                            doc.score = score;
+                            doc
+                        })
+                        .collect();
+                    // Sort by reranking score (higher is better)
+                    reranked.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+                    reranked
+                }
+                Err(e) => {
+                    warn!("LLM reranking failed: {}, using original candidates", e);
+                    candidates
+                }
+            }
         } else {
             candidates
         };

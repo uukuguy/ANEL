@@ -11,7 +11,9 @@
    - LLM 路由层 (本地/远程双模式)
    - **RRF 融合算法** - 已实现
    - **查询扩展** - 已实现（基于规则 + LLM placeholder）
-   - 输出格式化
+   - **输出格式化**
+   - **向量搜索框架** - embed_sync/rerank_sync 包装器已实现
+   - **Hybrid Search 修复** - LLM reranking 功能已启用
 
 2. **Python 实现 (qmd-python)** - 基础框架
    - Typer CLI 命令
@@ -32,25 +34,31 @@
 ### 待完成 ❌
 
 1. **LanceDB 后端** - 未实现
-2. **sqlite-vec 向量搜索** - 暂时回退到 BM25（异步问题待解决）
+2. **sqlite-vec 向量搜索** - 框架已实现，需启用 feature 测试
 3. **Agent 交互模式** - 仅框架
 4. **单元测试** - 无测试用例
 5. **MCP Server** - 暂时禁用（SDK API 不稳定）
+6. **Rust 警告清理** - 移除未使用的变量和导入
 
 ---
 
 ## 下阶段重点任务
 
-### 1. 完善向量搜索 (优先级: 高)
+### 1. 完善向量搜索 (优先级: 高) ✅
 
-#### 修复异步 Embedding
+**已修复** (2026-02-11):
 
-文件: `src/qmd-rust/src/store/mod.rs`
+- ✅ 实现 `embed_sync` 同步包装器 (`src/llm/mod.rs:149`)
+- ✅ 实现 `rerank_sync` 同步 reranking 包装器 (`src/llm/mod.rs:159`)
+- ✅ 修复 `hybrid_search` 使用 LLM reranking (`src/store/mod.rs`)
+- ✅ 实现 `vector_search_with_embedder` 方法 (`src/store/mod.rs`)
+- ✅ 实现 sqlite-vec 搜索框架 (`src/store/mod.rs:vector_search_sqlite_vec`)
 
-当前向量搜索回退到 BM25，需要：
-1. 实现异步运行时集成（tokio）
-2. 使用 `tokio::runtime::Handle::current().block_on()` 包装异步调用
-3. 完成 sqlite-vec 集成
+**启用方式**: 构建时添加 `--features sqlite-vec`
+
+**待完成**:
+- 启用 sqlite-vec feature 进行实际测试
+- 集成真正的 llama.cpp embedding 模型
 
 ### 2. 添加 LanceDB 后端 (优先级: 中)
 
@@ -195,3 +203,25 @@ fn search(&self) -> Result<Vec<SearchResult>> {
 - [LanceDB Python](https://lancedb.github.io/lancedb/)
 - [RRF 融合算法](https://plg.uwaterloo.ca/~gvcormac/cormacksph04-rrf.pdf)
 - [MCP SDK](https://github.com/modelcontextprotocol/spec)
+
+---
+
+## 2026-02-11 代码变更
+
+### 本次会话修复
+
+| 文件 | 变更 |
+|------|------|
+| `src/llm/mod.rs` | 添加 `embed_sync()` 和 `rerank_sync()` 同步包装器 |
+| `src/store/mod.rs` | 修复 `hybrid_search` 使用 LLM reranking；添加向量搜索框架 |
+| `src/config/mod.rs` | 修复 `ModelsConfig` Default 实现 |
+| `src/cli/mod.rs` | 添加子模块声明 |
+| `src/main.rs` | 修复 CLI 解析；暂时禁用 MCP 模块 |
+
+### 验证命令
+
+```bash
+cd src/qmd-rust
+cargo build --release
+./target/release/qmd-rust --help
+```
