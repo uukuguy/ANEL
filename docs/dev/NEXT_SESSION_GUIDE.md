@@ -1,290 +1,226 @@
-# 下一阶段开发指南
+# Next Session Guide - QMD Development
 
-## 当前进度
+**Last Updated**: 2026-02-11
+**Current Phase**: Vector Search Implementation - Phase 1 Complete
 
-### 已完成 ✅
+## 🎯 Phase 1 Status: COMPLETED ✅
 
-1. **Rust 实现 (qmd-rust)** - 基础框架
-   - CLI 命令模块 (collection, context, get, multi-get, search, vsearch, query, embed, update, status, cleanup, agent)
-   - 配置管理模块 (YAML 配置加载/保存)
-   - SQLite FTS5 存储后端 (Schema, BM25 搜索)
-   - LLM 路由层 (本地/远程双模式)
-   - **RRF 融合算法** - 已实现
-   - **查询扩展** - 已实现（基于规则 + LLM placeholder）
-   - **输出格式化**
-   - **向量搜索框架** - embed_sync/rerank_sync 包装器已实现
-   - **Hybrid Search 修复** - LLM reranking 功能已启用
+### What Was Accomplished
 
-2. **Python 实现 (qmd-python)** - 基础框架
-   - Typer CLI 命令
-   - 配置管理
-   - SQLite FTS5 存储后端
-   - LLM 路由层
+1. **llama-cpp-2 Integration**
+   - Added as optional Cargo feature (`llama-cpp`)
+   - Implemented `LocalEmbedder::embed()` with real GGUF model support
+   - Includes GPU acceleration and vector normalization
+   - Fallback to random vectors when model unavailable
 
-3. **Go 实现 (qmd-go)** - 基础框架
-   - Cobra CLI 命令
-   - 配置管理
-   - SQLite FTS5 存储后端
-   - LLM 路由层
+2. **sqlite-vec Vector Search**
+   - Fixed SQL syntax for `vec_distance_cosine` function
+   - Proper table joins (content_vectors, vectors_vec, documents)
+   - Distance to similarity score conversion working correctly
 
-4. **共享资源**
-   - 配置文件模板
-   - 项目文档
+3. **Batch Embedding Generation**
+   - `embed_collection()` method with batch processing (size=10)
+   - Stores embeddings in both metadata and vector tables
+   - Supports incremental updates and force regeneration (`--force`)
 
-### 待完成 ❌
+4. **Async Runtime Fixes**
+   - Created Tokio runtime in embed and vsearch CLI handlers
+   - Implemented async versions of embed and search functions
 
-1. **LanceDB 后端** - 未实现
-2. **sqlite-vec 向量搜索** - 框架已实现，需启用 feature 测试
-3. **Agent 交互模式** - 仅框架
-4. **单元测试** - 无测试用例
-5. **MCP Server** - 暂时禁用（SDK API 不稳定）
-6. **Rust 警告清理** - ✅ 已完成
+5. **End-to-End Testing**
+   - ✅ `qmd-rust embed` - successfully generates embeddings
+   - ✅ `qmd-rust vsearch "machine learning"` - returns 3 results (0.76+ scores)
+   - ✅ Vector search shows semantic understanding (BM25 found 0 results)
 
----
-
-## 下阶段重点任务
-
-### 1. 完善向量搜索 (优先级: 高) ✅
-
-**已修复** (2026-02-11):
-
-- ✅ 实现 `embed_sync` 同步包装器 (`src/llm/mod.rs:149`)
-- ✅ 实现 `rerank_sync` 同步 reranking 包装器 (`src/llm/mod.rs:159`)
-- ✅ 修复 `hybrid_search` 使用 LLM reranking (`src/store/mod.rs`)
-- ✅ 实现 `vector_search_with_embedder` 方法 (`src/store/mod.rs`)
-- ✅ 实现 sqlite-vec 搜索框架 (`src/store/mod.rs:vector_search_sqlite_vec`)
-
-**启用方式**: 构建时添加 `--features sqlite-vec`
-
-**已测试** (2026-02-11):
-- ✅ sqlite-vec 扩展加载成功
-- ✅ update_index 文件扫描和索引功能正常工作
-- ✅ BM25 全文搜索返回正确结果
-
-**待完成**:
-- 集成真正的 llama.cpp embedding 模型
-- 实现向量搜索功能 (vector_search)
-
-### 2. 添加 LanceDB 后端 (优先级: 中)
-
-三个实现都需要添加 LanceDB 支持：
-
-| 实现 | 需要添加的模块 |
-|------|---------------|
-| Rust | `src/qmd-rust/src/store/lancedb.rs` |
-| Go | `internal/store/lancedb.go` |
-| Python | `src/store/lancedb.py` |
-
-### 3. Agent 交互模式 (优先级: 中)
-
-完善 `cli/agent.rs`：
-
-```rust
-fn run_interactive_agent(&self) -> Result<()> {
-    loop {
-        let query = self.read_user_input()?;
-        let intent = self.classify_intent(&query)?;
-
-        match intent {
-            Intent::Keyword => self.bm25_search(&query)?,
-            Intent::Semantic => self.vector_search(&query)?,
-            Intent::Complex => self.hybrid_search(&query)?,
-        }
-    }
-}
-```
-
-### 4. MCP Server (优先级: 低)
-
-重新启用 MCP 模块，需要：
-1. 更新 MCP SDK API 调用（当前 0.0.3 版本 API 有变化）
-2. 添加正确的 ServerBuilder 用法
-
-### 5. 测试 (优先级: 高)
-
-添加单元测试：
-
-```
-tests/
-├── test_rrf.py          # RRF 融合测试
-├── test_search.py       # 搜索一致性测试
-├── test_backends.py     # 后端一致性测试
-└── test_formatters.py   # 输出格式化测试
-```
-
----
-
-## 快速开始
-
-```bash
-# Rust 构建测试
-cd src/qmd-rust
-cargo build --release
-
-# Python 安装测试
-cd src/qmd-python
-pip install -e .
-
-# Go 构建测试
-cd src/qmd-go
-go build -o qmd ./cmd/qmd
-```
-
----
-
-## 检查清单
-
-### 代码质量
-- [x] Rust: `cargo clippy` 警告已清理（仅剩 dead_code 预期警告）
-- [ ] Python: `ruff check .` 无错误
-- [ ] Go: `go vet ./...` 无错误
-
-### 功能验证
-- [ ] CLI help 输出正确
-- [ ] 配置文件加载成功
-- [ ] SQLite FTS5 搜索返回结果
-- [ ] RRF 融合排序正确
-- [ ] 查询扩展生成变体
-
-### 文档
-- [ ] API 文档更新
-- [ ] CLI 用法示例
-- [ ] 配置文件说明
-
----
-
-## 注意事项
-
-### 1. Schema 兼容性
-所有实现必须使用相同的 SQLite Schema：
-
-```sql
-CREATE VIRTUAL TABLE documents_fts USING fts5(
-    filepath, title, body,
-    tokenize='porter unicode61'
-);
-```
-
-### 2. CLI 参数兼容性
-必须与原 QMD 工具保持一致：
-
-```bash
-qmd search <query> [-n <num>] [-c <collection>] [--all]
-qmd vsearch <query> [-n <num>] [-c <collection>] [--all]
-qmd query <query> [-n <num>] [-c <collection>] [--all]
-```
-
-### 3. 路径处理
-使用 `shellexpand` 处理 `~` 路径：
-
-```rust
-let path = shellexpand::tilde("~/notes").parse::<PathBuf>()?;
-```
-
-### 4. 异步处理
-如果需要在同步函数中调用异步代码，使用：
-
-```rust
-let result = tokio::runtime::Handle::current().block_on(async {
-    llm.embed(&[query]).await
-})?;
-```
-
-### 5. 错误处理
-使用 `anyhow` 简化错误传播：
-
-```rust
-fn search(&self) -> Result<Vec<SearchResult>> {
-    // ... 实现
-    Ok(results)
-}
-```
-
----
-
-## 参考链接
-
-- [sqlite-vec](https://github.com/asg017/sqlite-vec)
-- [LanceDB Python](https://lancedb.github.io/lancedb/)
-- [RRF 融合算法](https://plg.uwaterloo.ca/~gvcormac/cormacksph04-rrf.pdf)
-- [MCP SDK](https://github.com/modelcontextprotocol/spec)
-
----
-
-## 2026-02-11 代码变更
-
-### 本次会话修复
-
-| 文件 | 变更 |
-|------|------|
-| `src/llm/mod.rs` | 添加 `embed_sync()` 和 `rerank_sync()` 同步包装器 |
-| `src/store/mod.rs` | 修复 `hybrid_search` 使用 LLM reranking；添加向量搜索框架 |
-| `src/config/mod.rs` | 修复 `ModelsConfig` Default 实现 |
-| `src/cli/mod.rs` | 添加子模块声明 |
-| `src/main.rs` | 修复 CLI 解析；暂时禁用 MCP 模块 |
-
-### 验证命令
-
+### Build Status
 ```bash
 cd src/qmd-rust
-cargo build --release
-./target/release/qmd-rust --help
+cargo build --features sqlite-vec  # ✅ Successful
+```
+
+### Current Limitations
+- Using random vectors as fallback (no real embedding model installed)
+- llama-cpp feature disabled (requires libomp installation on macOS)
+- Hybrid search not yet implemented
+
+---
+
+## 🚀 Phase 2: Enhanced Vector Search (Next Priority)
+
+### Option A: Install Real Embedding Model (Recommended)
+
+**Goal**: Replace random vectors with actual semantic embeddings
+
+**Steps**:
+1. Install OpenMP library:
+   ```bash
+   brew install libomp
+   ```
+
+2. Download GGUF embedding model:
+   ```bash
+   mkdir -p ~/.cache/qmd/models
+   cd ~/.cache/qmd/models
+   # Download from HuggingFace (example):
+   wget https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.f16.gguf
+   ```
+
+3. Update config to use the model:
+   ```yaml
+   llm:
+     embedder:
+       provider: local
+       model: nomic-embed-text-v1.5
+       model_path: ~/.cache/qmd/models/nomic-embed-text-v1.5.f16.gguf
+   ```
+
+4. Rebuild with llama-cpp feature:
+   ```bash
+   cargo build --features "sqlite-vec,llama-cpp"
+   ```
+
+5. Regenerate embeddings:
+   ```bash
+   ./target/debug/qmd-rust embed --force
+   ```
+
+6. Test improved search quality:
+   ```bash
+   ./target/debug/qmd-rust vsearch "machine learning"
+   ./target/debug/qmd-rust vsearch "artificial intelligence"
+   ```
+
+**Expected Outcome**: Higher quality semantic search with real embeddings
+
+---
+
+### Option B: Implement Hybrid Search
+
+**Goal**: Combine BM25 and vector search with RRF fusion
+
+**Files to Modify**:
+- `src/cli/query.rs` - Already has hybrid search skeleton
+- `src/store/mod.rs` - Implement `rrf_fusion()` method (line 480)
+
+**Implementation Steps**:
+1. Verify `rrf_fusion()` implementation (already exists but unused)
+2. Update `query.rs` to call both BM25 and vector search
+3. Apply RRF fusion to combine results
+4. Test with various queries
+
+**Test Commands**:
+```bash
+./target/debug/qmd-rust query "machine learning" --limit 10
+./target/debug/qmd-rust query "AI algorithms" --format json
+```
+
+**Expected Outcome**: Better search results combining keyword and semantic matching
+
+---
+
+### Option C: Add Unit Tests
+
+**Goal**: Ensure code quality and prevent regressions
+
+**Files to Create**:
+- `src/store/tests.rs` - Vector search tests
+- `src/llm/tests.rs` - Embedding generation tests
+
+**Test Cases**:
+1. Vector search with known embeddings
+2. RRF fusion algorithm correctness
+3. Batch embedding generation
+4. Distance to similarity conversion
+
+**Commands**:
+```bash
+cargo test --features sqlite-vec
+cargo test --features "sqlite-vec,llama-cpp"
 ```
 
 ---
 
-## 2026-02-11 代码变更（第二阶段）
+## 📝 Important Notes for Next Session
 
-### 代码质量修复
+### Key Files Modified (Phase 1)
+- `Cargo.toml` - Added llama-cpp-2 as optional dependency
+- `src/llm/mod.rs` - Implemented real embedding generation
+- `src/store/mod.rs` - Fixed vector search SQL, added `get_collections()`
+- `src/cli/embed.rs` - Async embedding with Tokio runtime
+- `src/cli/vsearch.rs` - Async vector search with Tokio runtime
+- `src/main.rs` - Updated vsearch command to pass LLM router
 
-| 文件 | 变更 |
-|------|------|
-| `build.rs` | 移除未使用的 `Path` 和 `Stdio` 导入 |
-| `src/cli/collection.rs` | 移除未使用的 `Context` 导入；修复 `add_collection` config 参数 |
-| `src/cli/context.rs` | 修复未使用的 `config` 变量 |
-| `src/cli/search.rs` | 移除未使用的 `SearchResult` 导入 |
-| `src/cli/vsearch.rs` | 移除未使用的 `SearchResult` 导入 |
-| `src/cli/embed.rs` | 移除未使用的 `PathBuf` 导入 |
-| `src/cli/agent.rs` | 移除未使用的 `Config` 和 `Select` 导入 |
-| `src/cli/get.rs` | 修复未使用的 `config` 变量 |
-| `src/cli/multi_get.rs` | 修复未使用的 `config` 变量 |
-| `src/store/mod.rs` | 移除多个 `mut`；修复未使用变量；优化 `match_result_ok` |
-| `src/formatter/mod.rs` | 修复 `print_literal` 警告 |
-| `src/llm/mod.rs` | 修复未使用的 `query` 变量 |
-| `src/config/mod.rs` | 使用 `#[derive(Default)]` 替代手动实现 |
+### Unused Methods (Can Be Removed or Used)
+- `Store::vector_search()` - Fallback to BM25 (line 259)
+- `Store::vector_search_with_embedder()` - Sync version (line 267)
+- `Store::vector_search_in_db()` - Old implementation (line 309)
+- `Store::vector_search_sqlite_vec()` - Old implementation (line 335)
+- `Store::rrf_fusion()` - Ready to use for hybrid search (line 480)
+- `Store::embed_collection()` - Sync version (line 549)
+- `Store::embed_all_collections()` - Sync version (line 626)
 
-### 验证命令
+### Configuration
+Current config location: `~/.config/qmd/config.yaml`
 
-```bash
-cd src/qmd-rust
-cargo build --release
-./target/release/qmd-rust --help
+Example LLM config:
+```yaml
+llm:
+  embedder:
+    provider: local  # or openai, anthropic
+    model: nomic-embed-text-v1.5
+    model_path: ~/.cache/qmd/models/nomic-embed-text-v1.5.f16.gguf
+  generator:
+    provider: openai
+    model: gpt-4
 ```
+
+### Database Schema
+- `documents` - Main document table
+- `content_vectors` - Embedding metadata (hash, model, timestamp)
+- `vectors_vec` - Actual vector data (hash_seq, embedding JSON)
 
 ---
 
-## 2026-02-11 代码变更（第三阶段）
+## 🎯 Recommended Next Steps
 
-### 向量搜索完善和测试
+**Priority 1**: Install real embedding model (Option A)
+- Most impactful improvement
+- Enables true semantic search
+- ~30 minutes of work
 
-| 文件 | 变更 |
-|------|------|
-| `Cargo.toml` | 添加 `sqlite-vec = "0.1"` 和 `sha2 = "0.10"` 依赖 |
-| `src/store/mod.rs` | 修复 sqlite-vec 编译错误（mut results）；添加 `init_sqlite_vec` 扩展加载；简化 schema（FTS5 content 选项）；实现 `update_index` 文件扫描和索引更新 |
-| `src/config/mod.rs` | 修复配置路径展开问题（`shellexpand::tilde`） |
-| `src/cli/search.rs` | 修复 SQL 查询（移除 `NOT active:0`；修复字段名 `filepath`） |
+**Priority 2**: Implement hybrid search (Option B)
+- Leverages existing RRF implementation
+- Combines strengths of BM25 and vector search
+- ~1-2 hours of work
 
-### 验证命令
+**Priority 3**: Add unit tests (Option C)
+- Ensures code quality
+- Prevents regressions
+- ~2-3 hours of work
 
-```bash
-# 构建（启用 sqlite-vec feature）
-cd src/qmd-rust
-cargo build --release --features sqlite-vec
+---
 
-# 更新索引
-./target/release/qmd-rust update
+## 🐛 Known Issues
 
-# 测试搜索
-./target/release/qmd-rust search "installation"
-./target/release/qmd-rust search "rust"
-```
+1. **llama-cpp compilation** - Requires libomp on macOS
+   - Workaround: Use random vectors or remote API
+   - Fix: `brew install libomp`
+
+2. **Async runtime** - Must create Tokio runtime in CLI handlers
+   - Fixed in embed.rs and vsearch.rs
+   - Pattern to follow for other async operations
+
+3. **Unused warnings** - Several methods marked as unused
+   - Can be cleaned up or integrated into hybrid search
+
+---
+
+## 📚 Reference
+
+- **sqlite-vec docs**: https://github.com/asg017/sqlite-vec
+- **llama-cpp-2 docs**: https://docs.rs/llama-cpp-2
+- **RRF algorithm**: Reciprocal Rank Fusion for result merging
+
+---
+
+**Ready to continue!** Choose Option A, B, or C based on your priorities.

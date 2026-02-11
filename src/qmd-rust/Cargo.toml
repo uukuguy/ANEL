@@ -32,6 +32,7 @@ glob = "0.3"
 tokio = { version = "1.0", features = ["full"] }
 reqwest = { version = "0.11", features = ["json"] }
 rand = "0.8"
+llama-cpp-2 = { version = "0.1", optional = true }
 
 # MCP
 # mcp-sdk = "0.0"  # TODO: Re-enable when API is stable
@@ -54,3 +55,4 @@ prost-build = "0.12"
 [features]
 default = []
 sqlite-vec = []
+llama-cpp = ["llama-cpp-2"]

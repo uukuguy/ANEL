@@ -45,7 +45,8 @@ fn main() -> Result<()> {
         }
         Commands::Vsearch(cmd) => {
             let store = store::Store::new(&config)?;
-            crate::cli::vsearch::handle(cmd, &store)?;
+            let llm = llm::Router::new(&config)?;
+            crate::cli::vsearch::handle(cmd, &store, &llm)?;
         }
         Commands::Query(cmd) => {
             let store = store::Store::new(&config)?;

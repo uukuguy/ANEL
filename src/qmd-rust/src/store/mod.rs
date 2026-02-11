@@ -61,6 +61,11 @@ impl Store {
         Ok(store)
     }
 
+    /// Get collections from config
+    pub fn get_collections(&self) -> &[crate::config::CollectionConfig] {
+        &self.config.collections
+    }
+
     /// Initialize sqlite-vec extension
     fn init_sqlite_vec() -> Result<()> {
         #[cfg(feature = "sqlite-vec")]
@@ -83,7 +88,7 @@ impl Store {
     }
 
     /// Get or create database connection for a collection
-    fn get_connection(&self, collection: &str) -> Result<Connection> {
+    pub fn get_connection(&self, collection: &str) -> Result<Connection> {
         let db_path = self.config.db_path_for(collection);
 
         // Create parent directory if needed
@@ -333,28 +338,30 @@ impl Store {
         query_vector: &[f32],
         limit: usize,
     ) -> Result<Vec<SearchResult>> {
-        use rusqlite::types::Value;
-
         let mut results = Vec::new();
 
-        // Prepare query vector as SQL array
-        let _query_vec: Vec<Value> = query_vector.iter().map(|&v| Value::from(v)).collect();
+        // Convert query vector to JSON array format for sqlite-vec
+        let query_vec_json = serde_json::to_string(query_vector)?;
 
+        // Use sqlite-vec's vec_distance_cosine function for similarity search
+        // Note: We search content_vectors to get hash/seq, then join to documents
         let mut stmt = conn.prepare(
             "SELECT
-                v.rowid,
-                v.distance,
+                cv.hash,
                 d.path,
                 d.title,
-                d.hash
-             FROM vectors_vec v
-             JOIN documents d ON v.rowid = d.id
-             ORDER BY v.distance
+                d.collection,
+                vec_distance_cosine(v.embedding, ?) as distance
+             FROM content_vectors cv
+             JOIN vectors_vec v ON v.hash_seq = cv.hash || '_' || cv.seq
+             JOIN documents d ON d.hash = cv.hash
+             WHERE d.active = 1
+             ORDER BY distance ASC
              LIMIT ?"
         )?;
 
-        let rows: Vec<(i32, f64, String, String, String)> = stmt
-            .query_map([limit as i64], |row| {
+        let rows: Vec<(String, String, String, String, f64)> = stmt
+            .query_map(rusqlite::params![query_vec_json, limit as i64], |row| {
                 Ok((
                     row.get(0)?,
                     row.get(1)?,
@@ -366,14 +373,14 @@ impl Store {
             .filter_map(|r| r.ok())
             .collect();
 
-        for (rowid, distance, path, title, _hash) in rows {
+        for (hash, path, title, collection, distance) in rows {
             results.push(SearchResult {
                 path,
-                collection: String::new(),
+                collection,
                 score: distance as f32,
                 lines: 0,
                 title,
-                hash: rowid.to_string(),
+                hash,
             });
         }
 
@@ -539,9 +546,79 @@ impl Store {
     }
 
     /// Embed a collection
-    pub fn embed_collection(&self, _collection: &str, _llm: &Router, _force: bool) -> Result<()> {
-        // TODO: Implement embedding generation
-        println!("Embedding collection: {}", _collection);
+    pub fn embed_collection(&self, collection: &str, llm: &Router, force: bool) -> Result<()> {
+        info!("Embedding collection: {}", collection);
+
+        if !llm.has_embedder() {
+            warn!("No embedder available, skipping embedding");
+            return Ok(());
+        }
+
+        let conn = self.get_connection(collection)?;
+
+        // Get all documents that need embedding
+        let mut stmt = if force {
+            conn.prepare("SELECT id, hash, doc FROM documents WHERE active = 1")?
+        } else {
+            conn.prepare(
+                "SELECT id, hash, doc FROM documents
+                 WHERE active = 1
+                 AND hash NOT IN (SELECT DISTINCT hash FROM content_vectors)"
+            )?
+        };
+
+        let docs: Vec<(i64, String, String)> = stmt
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        info!("Found {} documents to embed", docs.len());
+
+        // Process documents in batches
+        let batch_size = 10;
+        for (batch_idx, chunk) in docs.chunks(batch_size).enumerate() {
+            info!("Processing batch {}/{}", batch_idx + 1, (docs.len() + batch_size - 1) / batch_size);
+
+            // Prepare texts for embedding
+            let texts: Vec<&str> = chunk.iter().map(|(_, _, doc)| doc.as_str()).collect();
+
+            // Generate embeddings
+            let embedding_result = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    llm.embed(&texts).await
+                })
+            })?;
+
+            info!("Generated {} embeddings with model: {}",
+                  embedding_result.embeddings.len(), embedding_result.model);
+
+            // Store embeddings
+            for (i, (doc_id, hash, _)) in chunk.iter().enumerate() {
+                let embedding = &embedding_result.embeddings[i];
+                let embedding_json = serde_json::to_string(embedding)?;
+
+                // Store in content_vectors metadata table
+                conn.execute(
+                    "INSERT OR REPLACE INTO content_vectors (hash, seq, pos, model, embedded_at)
+                     VALUES (?, 0, 0, ?, datetime('now'))",
+                    [hash, &embedding_result.model],
+                )?;
+
+                // Store in vectors_vec table
+                let hash_seq = format!("{}_{}", hash, 0);
+                conn.execute(
+                    "INSERT OR REPLACE INTO vectors_vec (hash_seq, embedding)
+                     VALUES (?, ?)",
+                    [&hash_seq, &embedding_json],
+                )?;
+
+                info!("Stored embedding for document {} (hash: {})", doc_id, hash);
+            }
+        }
+
+        info!("Embedding complete for collection: {}", collection);
         Ok(())
     }
 

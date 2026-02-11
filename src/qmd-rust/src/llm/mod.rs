@@ -251,6 +251,11 @@ impl LocalEmbedder {
         let cache_path = shellexpand::tilde("~/.cache/qmd/models").parse::<PathBuf>()?;
         let model_path = cache_path.join(format!("{}.gguf", model_name));
 
+        // Check if model file exists
+        if !model_path.exists() {
+            log::warn!("Model file not found: {}. Embeddings will use fallback.", model_path.display());
+        }
+
         Ok(Self {
             model_path,
             model_name: model_name.to_string(),
@@ -262,15 +267,103 @@ impl LocalEmbedder {
     }
 
     pub async fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
-        // TODO: Implement local embedding using llama.cpp
-        // This would use the llama-cpp-python bindings or a Rust-native solution
-        log::info!("Local embedding with model: {}", self.model_name);
+        log::info!("Local embedding with model: {} ({})", self.model_name, self.model_path.display());
 
-        // Placeholder: return random embeddings
-        let dim = 384;
-        Ok(texts.iter()
-            .map(|_| (0..dim).map(|_| rand::random::<f32>()).collect())
-            .collect())
+        // Check if model exists, fallback to random if not
+        if !self.model_path.exists() {
+            log::warn!("Model not found, using random embeddings as fallback");
+            let dim = 384;
+            return Ok(texts.iter()
+                .map(|_| (0..dim).map(|_| rand::random::<f32>()).collect())
+                .collect());
+        }
+
+        #[cfg(feature = "llama-cpp")]
+        {
+            self.embed_with_llama_cpp(texts).await
+        }
+
+        #[cfg(not(feature = "llama-cpp"))]
+        {
+            log::warn!("llama-cpp feature not enabled, using random embeddings as fallback");
+            let dim = 384;
+            Ok(texts.iter()
+                .map(|_| (0..dim).map(|_| rand::random::<f32>()).collect())
+                .collect())
+        }
+    }
+
+    #[cfg(feature = "llama-cpp")]
+    async fn embed_with_llama_cpp(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        use llama_cpp_2::llama_backend::LlamaBackend;
+        use llama_cpp_2::model::{LlamaModel, AddBos};
+        use llama_cpp_2::model::params::LlamaModelParams;
+        use llama_cpp_2::context::params::LlamaContextParams;
+        use llama_cpp_2::llama_batch::LlamaBatch;
+
+        // Initialize llama.cpp backend
+        let backend = LlamaBackend::init()
+            .map_err(|e| anyhow::anyhow!("Failed to initialize llama backend: {:?}", e))?;
+
+        // Load model with GPU acceleration if available
+        let model_params = LlamaModelParams::default()
+            .with_n_gpu_layers(1000); // Offload all layers to GPU if available
+
+        let model = LlamaModel::load_from_file(&backend, &self.model_path, &model_params)
+            .map_err(|e| anyhow::anyhow!("Failed to load model: {:?}", e))?;
+
+        log::info!("Model loaded: vocab={}, embd_dim={}", model.n_vocab(), model.n_embd());
+
+        // Create context with embeddings enabled
+        let ctx_params = LlamaContextParams::default()
+            .with_embeddings(true)
+            .with_n_threads_batch(8);
+
+        let mut ctx = model.new_context(&backend, ctx_params)
+            .map_err(|e| anyhow::anyhow!("Failed to create context: {:?}", e))?;
+
+        let mut all_embeddings = Vec::new();
+
+        // Process each text
+        for text in texts {
+            // Tokenize text
+            let tokens = model.str_to_token(text, AddBos::Always)
+                .map_err(|e| anyhow::anyhow!("Failed to tokenize: {:?}", e))?;
+
+            // Create batch and process
+            let mut batch = LlamaBatch::new(ctx.n_ctx() as usize, 1);
+            batch.add_sequence(&tokens, 0, false)
+                .map_err(|e| anyhow::anyhow!("Failed to add sequence: {:?}", e))?;
+
+            ctx.decode(&mut batch)
+                .map_err(|e| anyhow::anyhow!("Failed to decode: {:?}", e))?;
+
+            // Get embeddings (mean pooling by default)
+            let embeddings = ctx.embeddings_seq_ith(0)
+                .map_err(|e| anyhow::anyhow!("Failed to get embeddings: {:?}", e))?;
+
+            // Normalize embeddings for cosine similarity
+            let normalized = Self::normalize_embedding(embeddings);
+            all_embeddings.push(normalized);
+        }
+
+        log::info!("Generated {} embeddings with dimension {}", all_embeddings.len(), all_embeddings[0].len());
+
+        Ok(all_embeddings)
+    }
+
+    /// Normalize embedding vector for cosine similarity search
+    fn normalize_embedding(embedding: &[f32]) -> Vec<f32> {
+        let magnitude: f32 = embedding.iter()
+            .map(|&x| x * x)
+            .sum::<f32>()
+            .sqrt();
+
+        if magnitude > 0.0 {
+            embedding.iter().map(|&x| x / magnitude).collect()
+        } else {
+            embedding.to_vec()
+        }
     }
 }
 
