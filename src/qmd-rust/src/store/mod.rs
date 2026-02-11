@@ -261,6 +261,50 @@ impl Store {
         self.bm25_search(query, options)
     }
 
+    /// Vector search with explicit embedder (async version)
+    ///
+    /// Uses the provided LLM to generate embeddings and performs similarity search.
+    pub async fn vector_search_with_embedder_async(
+        &self,
+        query: &str,
+        options: SearchOptions,
+        llm: &Router,
+    ) -> Result<Vec<SearchResult>> {
+        // Generate embedding for the query (async)
+        let embedding_result = llm.embed(&[query]).await?;
+
+        info!("Generated embedding with {} dimensions, provider: {}",
+              embedding_result.embeddings[0].len(), embedding_result.provider);
+
+        // Get the embedding vector
+        let query_vector = &embedding_result.embeddings[0];
+
+        // Perform vector search in each collection
+        let mut results = Vec::new();
+
+        let collections: Vec<&str> = if options.search_all {
+            self.config.collections.iter().map(|c| c.name.as_str()).collect()
+        } else if let Some(ref name) = options.collection {
+            vec![name.as_str()]
+        } else if let Some(col) = self.config.collections.first() {
+            vec![col.name.as_str()]
+        } else {
+            return Ok(results);
+        };
+
+        for collection in collections {
+            if let Ok(conn) = self.get_connection(collection) {
+                let collection_results = self.vector_search_in_db(&conn, query_vector, options.limit)?;
+                results.extend(collection_results);
+            }
+        }
+
+        // Sort by score (cosine distance - lower is better)
+        results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
+
+        Ok(results)
+    }
+
     /// Vector search with explicit embedder
     ///
     /// Uses the provided LLM to generate embeddings and performs similarity search.
@@ -403,9 +447,10 @@ impl Store {
     /// Combines BM25 and vector search with query expansion and LLM reranking:
     /// 1. Query expansion using LLM
     /// 2. BM25 retrieval for expanded queries
-    /// 3. RRF fusion of all results
-    /// 4. LLM reranking of top candidates (if available)
-    pub fn hybrid_search(
+    /// 3. Vector search for original query
+    /// 4. RRF fusion of all results
+    /// 5. LLM reranking of top candidates (if available)
+    pub async fn hybrid_search(
         &self,
         query: &str,
         options: SearchOptions,
@@ -429,17 +474,26 @@ impl Store {
         all_bm25_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
         all_bm25_results.truncate(100);
 
-        // Step 3: RRF fusion (single list, so just sort by BM25 score)
-        let mut fused = all_bm25_results;
+        // Step 3: Vector search for original query
+        let vector_results = self.vector_search_with_embedder_async(query, options.clone(), llm).await?;
+
+        info!("BM25 results: {}, Vector results: {}", all_bm25_results.len(), vector_results.len());
+
+        // Step 4: RRF fusion of BM25 and vector results
+        let result_lists = vec![all_bm25_results, vector_results];
+        let weights = Some(vec![1.0, 1.5]); // Give more weight to vector search
+        let mut fused = Self::rrf_fusion(&result_lists, weights, 60);
+
+        // Sort by RRF score (higher is better)
         fused.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
 
-        // Step 4: Top 30 for reranking
+        // Step 5: Top 30 for reranking
         let candidates: Vec<SearchResult> = fused.into_iter().take(30).collect();
 
-        // Step 5: Try LLM reranking if available
+        // Step 6: Try LLM reranking if available
         let final_results = if llm.has_reranker() {
             info!("LLM reranking available, applying to top candidates");
-            match llm.rerank_sync(query, &candidates) {
+            match llm.rerank(query, &candidates).await {
                 Ok(scores) => {
                     // Apply reranking scores
                     let mut reranked: Vec<_> = candidates
@@ -518,11 +572,11 @@ impl Store {
         }
 
         // Sort by RRF score (descending)
-        let mut results: Vec<_> = doc_map.into_values().collect();
-        results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        let mut results: Vec<_> = doc_map.into_iter().collect();
+        results.sort_by(|a, b| b.1.0.partial_cmp(&a.1.0).unwrap());
 
         // Apply Top-Rank Bonus and construct final results
-        results.into_iter().enumerate().map(|(rank, data)| {
+        results.into_iter().enumerate().map(|(rank, (path, data))| {
             let mut final_score = data.0;
 
             // Top-Rank Bonus: extra points for highly-ranked documents
@@ -535,7 +589,7 @@ impl Store {
             }
 
             SearchResult {
-                path: data.1.clone(),
+                path,
                 collection: data.1,
                 score: final_score,
                 lines: data.2,

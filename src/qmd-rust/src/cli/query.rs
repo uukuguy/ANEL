@@ -13,8 +13,13 @@ pub fn handle(
     let query = &cmd.query;
     let options = convert_options(&cmd.format);
 
+    // Create a Tokio runtime for async operations
+    let rt = tokio::runtime::Runtime::new()?;
+
     // Perform hybrid search with LLM reranking
-    let results = store.hybrid_search(query, options.clone(), llm)?;
+    let results = rt.block_on(async {
+        store.hybrid_search(query, options.clone(), llm).await
+    })?;
 
     // Format and display results
     let formatter = Format::from_string(&cmd.format.format);
