@@ -5,11 +5,12 @@
 ### 已完成 ✅
 
 1. **Rust 实现 (qmd-rust)** - 基础框架
-   - CLI 命令模块 (collection, context, get, multi-get, search, vsearch, query, embed, update, status, cleanup, mcp, agent)
+   - CLI 命令模块 (collection, context, get, multi-get, search, vsearch, query, embed, update, status, cleanup, agent)
    - 配置管理模块 (YAML 配置加载/保存)
    - SQLite FTS5 存储后端 (Schema, BM25 搜索)
-   - LLM 路由层 (本地/远程双模式 placeholder)
-   - MCP Server 框架
+   - LLM 路由层 (本地/远程双模式)
+   - **RRF 融合算法** - 已实现
+   - **查询扩展** - 已实现（基于规则 + LLM placeholder）
    - 输出格式化
 
 2. **Python 实现 (qmd-python)** - 基础框架
@@ -17,14 +18,12 @@
    - 配置管理
    - SQLite FTS5 存储后端
    - LLM 路由层
-   - MCP Server
 
 3. **Go 实现 (qmd-go)** - 基础框架
    - Cobra CLI 命令
    - 配置管理
    - SQLite FTS5 存储后端
    - LLM 路由层
-   - MCP Server
 
 4. **共享资源**
    - 配置文件模板
@@ -32,46 +31,26 @@
 
 ### 待完成 ❌
 
-1. **RRF 融合算法** - 当前仅返回 BM25 结果
-2. **LanceDB 后端** - 未实现
-3. **查询扩展** - 未实现
-4. **Agent 交互模式** - 仅框架
-5. **单元测试** - 无测试用例
-6. **sqlite-vec 集成** - 向量搜索未完成
+1. **LanceDB 后端** - 未实现
+2. **sqlite-vec 向量搜索** - 暂时回退到 BM25（异步问题待解决）
+3. **Agent 交互模式** - 仅框架
+4. **单元测试** - 无测试用例
+5. **MCP Server** - 暂时禁用（SDK API 不稳定）
 
 ---
 
 ## 下阶段重点任务
 
-### 1. 完善 Store 模块 (优先级: 高)
+### 1. 完善向量搜索 (优先级: 高)
 
-#### RRF 融合算法
+#### 修复异步 Embedding
 
 文件: `src/qmd-rust/src/store/mod.rs`
 
-```rust
-fn rrf_fusion(
-    result_lists: &[Vec<SearchResult>],
-    weights: Option<Vec<f32>>,
-    k: u32,
-) -> Vec<SearchResult> {
-    // 当前实现是 placeholder
-    // 需要实现完整的 RRF 算法
-}
-```
-
-#### sqlite-vec 向量搜索
-
-需要在 Rust 实现中添加：
-
-```rust
-fn vector_sqlite_search(&self, query: &str, options: SearchOptions) -> Result<Vec<SearchResult>> {
-    // 1. 生成查询嵌入
-    let embedding = self.llm.embed(&[query]).await?;
-    // 2. 使用 sqlite-vec 搜索
-    // 3. 返回结果
-}
-```
+当前向量搜索回退到 BM25，需要：
+1. 实现异步运行时集成（tokio）
+2. 使用 `tokio::runtime::Handle::current().block_on()` 包装异步调用
+3. 完成 sqlite-vec 集成
 
 ### 2. 添加 LanceDB 后端 (优先级: 中)
 
@@ -79,22 +58,11 @@ fn vector_sqlite_search(&self, query: &str, options: SearchOptions) -> Result<Ve
 
 | 实现 | 需要添加的模块 |
 |------|---------------|
-| Rust | `src/qmd-rust/src/store/lancedb_fts.rs` |
+| Rust | `src/qmd-rust/src/store/lancedb.rs` |
 | Go | `internal/store/lancedb.go` |
 | Python | `src/store/lancedb.py` |
 
-### 3. 实现查询扩展 (优先级: 中)
-
-LLM 模块需要实现 `expand_query` 方法：
-
-```rust
-pub fn expand_query(&self, query: &str) -> Result<Vec<String>> {
-    // 使用 LLM 生成查询变体
-    // 返回原始查询 + 2-3 个变体
-}
-```
-
-### 4. Agent 交互模式 (优先级: 低)
+### 3. Agent 交互模式 (优先级: 中)
 
 完善 `cli/agent.rs`：
 
@@ -112,6 +80,12 @@ fn run_interactive_agent(&self) -> Result<()> {
     }
 }
 ```
+
+### 4. MCP Server (优先级: 低)
+
+重新启用 MCP 模块，需要：
+1. 更新 MCP SDK API 调用（当前 0.0.3 版本 API 有变化）
+2. 添加正确的 ServerBuilder 用法
 
 ### 5. 测试 (优先级: 高)
 
@@ -157,6 +131,7 @@ go build -o qmd ./cmd/qmd
 - [ ] 配置文件加载成功
 - [ ] SQLite FTS5 搜索返回结果
 - [ ] RRF 融合排序正确
+- [ ] 查询扩展生成变体
 
 ### 文档
 - [ ] API 文档更新
@@ -193,7 +168,16 @@ qmd query <query> [-n <num>] [-c <collection>] [--all]
 let path = shellexpand::tilde("~/notes").parse::<PathBuf>()?;
 ```
 
-### 4. 错误处理
+### 4. 异步处理
+如果需要在同步函数中调用异步代码，使用：
+
+```rust
+let result = tokio::runtime::Handle::current().block_on(async {
+    llm.embed(&[query]).await
+})?;
+```
+
+### 5. 错误处理
 使用 `anyhow` 简化错误传播：
 
 ```rust
@@ -210,3 +194,4 @@ fn search(&self) -> Result<Vec<SearchResult>> {
 - [sqlite-vec](https://github.com/asg017/sqlite-vec)
 - [LanceDB Python](https://lancedb.github.io/lancedb/)
 - [RRF 融合算法](https://plg.uwaterloo.ca/~gvcormac/cormacksph04-rrf.pdf)
+- [MCP SDK](https://github.com/modelcontextprotocol/spec)

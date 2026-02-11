@@ -16,7 +16,7 @@ thiserror = "1.0"
 
 # Database
 rusqlite = { version = "0.30", features = ["bundled"] }
-lancedb = "0.16"
+# lancedb = "0.16"  # TODO: Re-enable when dependency issues are resolved
 
 # Configuration
 serde = { version = "1.0", features = ["derive"] }
@@ -25,14 +25,15 @@ serde_json = "1.0"
 shellexpand = "3.1"
 
 # File globbing
-glob = "1.0"
+glob = "0.3"
 
 # LLM
 tokio = { version = "1.0", features = ["full"] }
 reqwest = { version = "0.11", features = ["json"] }
+rand = "0.8"
 
 # MCP
-mcp-sdk = "0.1"
+# mcp-sdk = "0.0"  # TODO: Re-enable when API is stable
 
 # Utils
 log = "0.4"
@@ -49,5 +50,5 @@ predicates = "3.0"
 prost-build = "0.12"
 
 [features]
-default = ["sqlite-vec"]
-sqlite-vec = ["rusqlite/sqlite_vec"]
+default = []
+sqlite-vec = []

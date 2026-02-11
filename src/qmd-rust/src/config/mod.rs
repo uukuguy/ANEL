@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::fs;
+use log::{info, warn};
 
 const DEFAULT_CONFIG_PATH: &str = "~/.config/qmd/index.yaml";
 const DEFAULT_CACHE_PATH: &str = "~/.cache/qmd";
