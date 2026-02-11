@@ -38,7 +38,7 @@ impl Format {
 
     fn format_cli(&self, results: &[SearchResult]) -> Result<(), anyhow::Error> {
         println!("Found {} results:", results.len());
-        println!("{:<6} {:<8} {}", "Score", "Lines", "Path");
+        println!("{:<6} {:<8} Path", "Score", "Lines");
         println!("{}", "-".repeat(80));
 
         for result in results {

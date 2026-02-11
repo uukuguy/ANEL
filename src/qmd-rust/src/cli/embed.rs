@@ -2,7 +2,6 @@ use crate::cli::{EmbedArgs};
 use crate::store::Store;
 use crate::llm::Router;
 use anyhow::Result;
-use std::path::PathBuf;
 
 /// Handle embed command - generate/update embeddings
 pub fn handle(

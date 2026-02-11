@@ -16,7 +16,7 @@ pub fn handle(
 }
 
 /// Add a context (path with description for relevance)
-fn add_context(args: &ContextAddArgs, config: &Config) -> Result<()> {
+fn add_context(args: &ContextAddArgs, _config: &Config) -> Result<()> {
     let path = match &args.path {
         Some(p) => shellexpand::tilde(p).parse::<PathBuf>()?,
         None => std::env::current_dir()?,
@@ -54,7 +54,7 @@ fn list_contexts(config: &Config) -> Result<()> {
 }
 
 /// Remove a context
-fn remove_context(args: &ContextRemoveArgs, config: &Config) -> Result<()> {
+fn remove_context(args: &ContextRemoveArgs, _config: &Config) -> Result<()> {
     let path = &args.path;
 
     println!("Context '{}' removed", path);

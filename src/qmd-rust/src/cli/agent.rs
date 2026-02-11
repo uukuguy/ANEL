@@ -1,9 +1,8 @@
 use crate::cli::AgentArgs;
-use crate::config::Config;
 use crate::llm::Router;
 use crate::store::Store;
 use anyhow::Result;
-use dialoguer::{Input, Select};
+use dialoguer::Input;
 
 /// Handle agent command - autonomous search mode
 pub fn handle(
@@ -32,7 +31,7 @@ pub fn handle(
     Ok(())
 }
 
-fn run_interactive_agent(store: &Store, llm: &Router) -> Result<()> {
+fn run_interactive_agent(_store: &Store, _llm: &Router) -> Result<()> {
     println!("QMD Agent Mode - Interactive");
     println!("Type 'exit' to quit, 'help' for commands");
 

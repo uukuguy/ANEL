@@ -8,7 +8,7 @@ use std::path::PathBuf;
 /// Handle multi-get command - retrieve multiple documents by pattern
 pub fn handle(
     cmd: &MultiGetArgs,
-    config: &Config,
+    _config: &Config,
 ) -> Result<()> {
     let pattern = &cmd.pattern;
 

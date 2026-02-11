@@ -1,6 +1,6 @@
 use crate::cli::{CollectionCommands, CollectionAddArgs, CollectionRemoveArgs, CollectionRenameArgs};
 use crate::config::{Config, CollectionConfig};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::path::PathBuf;
 
 /// Handle collection commands
@@ -17,7 +17,7 @@ pub fn handle(
 }
 
 /// Add a new collection
-fn add_collection(args: &CollectionAddArgs, config: &Config) -> Result<()> {
+fn add_collection(args: &CollectionAddArgs, _config: &Config) -> Result<()> {
     let name = args.name.clone().unwrap_or_else(|| {
         PathBuf::from(&args.path)
             .file_name()
@@ -58,7 +58,7 @@ fn list_collections(config: &Config) -> Result<()> {
     }
 
     println!("Collections:");
-    println!("{:<30} {:<40} {}", "Name", "Path", "Description");
+    println!("{:<30} {:<40} Description", "Name", "Path");
     println!("{}", "-".repeat(90));
 
     for collection in &config.collections {

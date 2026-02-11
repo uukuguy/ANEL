@@ -1,5 +1,4 @@
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 fn main() {
     // Check if sqlite-vec is available

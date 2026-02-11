@@ -45,7 +45,7 @@ pub struct Store {
 impl Store {
     /// Create a new Store instance
     pub fn new(config: &Config) -> Result<Self> {
-        let mut store = Self {
+        let store = Self {
             config: config.clone(),
             connections: HashMap::new(),
         };
@@ -184,7 +184,7 @@ impl Store {
         };
 
         for collection in collections {
-            if let Some(conn) = self.get_connection(collection).ok() {
+            if let Ok(conn) = self.get_connection(collection) {
                 let query = format!("{} NOT active:0", query);
 
                 let mut stmt = conn.prepare(
@@ -259,7 +259,7 @@ impl Store {
         };
 
         for collection in collections {
-            if let Some(conn) = self.get_connection(collection).ok() {
+            if let Ok(conn) = self.get_connection(collection) {
                 let collection_results = self.vector_search_in_db(&conn, query_vector, options.limit)?;
                 results.extend(collection_results);
             }
@@ -274,16 +274,16 @@ impl Store {
     /// Perform vector search in a single database
     fn vector_search_in_db(
         &self,
-        conn: &Connection,
-        query_vector: &[f32],
-        limit: usize,
+        _conn: &Connection,
+        _query_vector: &[f32],
+        _limit: usize,
     ) -> Result<Vec<SearchResult>> {
-        let mut results = Vec::new();
+        let results = Vec::new();
 
         // Try sqlite-vec first
         #[cfg(feature = "sqlite-vec")]
         {
-            results = self.vector_search_sqlite_vec(conn, query_vector, limit)?;
+            results = self.vector_search_sqlite_vec(_conn, _query_vector, _limit)?;
         }
 
         // Fallback to BM25 if no results or sqlite-vec not available
@@ -408,7 +408,7 @@ impl Store {
                     // Apply reranking scores
                     let mut reranked: Vec<_> = candidates
                         .into_iter()
-                        .zip(scores.into_iter())
+                        .zip(scores)
                         .map(|(mut doc, score)| {
                             doc.score = score;
                             doc
@@ -532,9 +532,10 @@ impl Store {
 
     /// Get index statistics
     pub fn get_stats(&self) -> Result<IndexStats> {
-        let mut stats = IndexStats::default();
-
-        stats.collection_count = self.config.collections.len();
+        let mut stats = IndexStats {
+            collection_count: self.config.collections.len(),
+            ..Default::default()
+        };
 
         for collection in &self.config.collections {
             if let Ok(conn) = self.get_connection(&collection.name) {

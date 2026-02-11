@@ -38,7 +38,7 @@
 3. **Agent 交互模式** - 仅框架
 4. **单元测试** - 无测试用例
 5. **MCP Server** - 暂时禁用（SDK API 不稳定）
-6. **Rust 警告清理** - 移除未使用的变量和导入
+6. **Rust 警告清理** - ✅ 已完成
 
 ---
 
@@ -130,7 +130,7 @@ go build -o qmd ./cmd/qmd
 ## 检查清单
 
 ### 代码质量
-- [ ] Rust: `cargo clippy` 无警告
+- [x] Rust: `cargo clippy` 警告已清理（仅剩 dead_code 预期警告）
 - [ ] Python: `ruff check .` 无错误
 - [ ] Go: `go vet ./...` 无错误
 
@@ -217,6 +217,36 @@ fn search(&self) -> Result<Vec<SearchResult>> {
 | `src/config/mod.rs` | 修复 `ModelsConfig` Default 实现 |
 | `src/cli/mod.rs` | 添加子模块声明 |
 | `src/main.rs` | 修复 CLI 解析；暂时禁用 MCP 模块 |
+
+### 验证命令
+
+```bash
+cd src/qmd-rust
+cargo build --release
+./target/release/qmd-rust --help
+```
+
+---
+
+## 2026-02-11 代码变更（第二阶段）
+
+### 代码质量修复
+
+| 文件 | 变更 |
+|------|------|
+| `build.rs` | 移除未使用的 `Path` 和 `Stdio` 导入 |
+| `src/cli/collection.rs` | 移除未使用的 `Context` 导入；修复 `add_collection` config 参数 |
+| `src/cli/context.rs` | 修复未使用的 `config` 变量 |
+| `src/cli/search.rs` | 移除未使用的 `SearchResult` 导入 |
+| `src/cli/vsearch.rs` | 移除未使用的 `SearchResult` 导入 |
+| `src/cli/embed.rs` | 移除未使用的 `PathBuf` 导入 |
+| `src/cli/agent.rs` | 移除未使用的 `Config` 和 `Select` 导入 |
+| `src/cli/get.rs` | 修复未使用的 `config` 变量 |
+| `src/cli/multi_get.rs` | 修复未使用的 `config` 变量 |
+| `src/store/mod.rs` | 移除多个 `mut`；修复未使用变量；优化 `match_result_ok` |
+| `src/formatter/mod.rs` | 修复 `print_literal` 警告 |
+| `src/llm/mod.rs` | 修复未使用的 `query` 变量 |
+| `src/config/mod.rs` | 使用 `#[derive(Default)]` 替代手动实现 |
 
 ### 验证命令
 

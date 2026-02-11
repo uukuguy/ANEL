@@ -332,7 +332,7 @@ impl LocalReranker {
         })
     }
 
-    pub async fn rerank(&self, query: &str, docs: &[&str]) -> Result<Vec<f32>> {
+    pub async fn rerank(&self, _query: &str, docs: &[&str]) -> Result<Vec<f32>> {
         log::info!("Local reranking with model: {}", self.model_name);
 
         // Placeholder: return random scores
@@ -361,7 +361,7 @@ impl RemoteReranker {
         })
     }
 
-    pub async fn rerank(&self, query: &str, docs: &[&str]) -> Result<Vec<f32>> {
+    pub async fn rerank(&self, _query: &str, docs: &[&str]) -> Result<Vec<f32>> {
         log::info!("Remote reranking with model: {}", self.model);
 
         // Placeholder: return random scores

@@ -80,7 +80,7 @@ fn parse_line_range(line_spec: &str, total_lines: usize) -> Result<(usize, usize
     }
 }
 
-fn resolve_path(relative: &str, config: &Config) -> Result<PathBuf> {
+fn resolve_path(relative: &str, _config: &Config) -> Result<PathBuf> {
     let path = PathBuf::from(relative);
 
     if path.is_absolute() {

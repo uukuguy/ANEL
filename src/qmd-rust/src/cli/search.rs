@@ -1,5 +1,5 @@
 use crate::cli::{SearchArgs, FormatOptions};
-use crate::store::{Store, SearchResult};
+use crate::store::Store;
 use crate::formatter::Format;
 use anyhow::Result;
 

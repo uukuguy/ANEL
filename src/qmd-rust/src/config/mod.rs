@@ -7,33 +7,23 @@ const DEFAULT_CONFIG_PATH: &str = "~/.config/qmd/index.yaml";
 const DEFAULT_CACHE_PATH: &str = "~/.cache/qmd";
 
 /// BM25 backend type
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum BM25Backend {
     #[serde(rename = "sqlite_fts5")]
+    #[default]
     SqliteFts5,
     #[serde(rename = "lancedb")]
     LanceDb,
 }
 
-impl Default for BM25Backend {
-    fn default() -> Self {
-        Self::SqliteFts5
-    }
-}
-
 /// Vector backend type
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum VectorBackend {
     #[serde(rename = "qmd_builtin")]
+    #[default]
     QmdBuiltin,
     #[serde(rename = "lancedb")]
     LanceDb,
-}
-
-impl Default for VectorBackend {
-    fn default() -> Self {
-        Self::QmdBuiltin
-    }
 }
 
 /// Collection configuration
