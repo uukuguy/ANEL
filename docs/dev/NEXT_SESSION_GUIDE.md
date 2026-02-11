@@ -276,24 +276,56 @@ cargo test --features sqlite-vec
 
 ---
 
-## 🎯 Recommended Next Steps (Phase 4)
+## 🎯 Phase 4A Status: COMPLETED ✅
 
-**Priority 1**: Add unit tests (Phase 4 Option A)
-- Ensures code quality and prevents regressions
-- Tests RRF fusion, vector search, hybrid search with real embeddings
-- Validate 768-dimension embedding handling
-- ~2-3 hours of work
+### What Was Accomplished
 
-**Priority 2**: Performance optimization (Phase 4 Option B)
-- Cache embedding model in memory (avoid reloading)
+1. **Unit Tests for Store Module (21 tests)**
+   - RRF fusion algorithm: empty input, single list, multi-list dedup, weights, top-rank bonus, k parameter, metadata preservation, 3-list fusion
+   - SearchResult: equality, clone, serialization
+   - SearchOptions: defaults
+   - Config: db_path generation
+   - SHA256 hash: deterministic, different inputs, empty string
+   - Schema initialization: verifies documents, FTS, content_vectors tables
+   - BM25 search: with data (finds correct results), no results case
+   - Index stats: empty collection
+
+2. **Unit Tests for LLM Module (14 tests)**
+   - LocalQueryExpander: keyword match, no match fallback, single word, max expansions, no duplicates
+   - Router expand_query: always includes original, max 5, no duplicates
+   - Router providers: no providers, with local embedder
+   - Normalize embedding: unit vector, magnitude, zero vector
+   - LLMProvider display
+
+3. **Dev Dependencies Added**
+   - `tempfile = "3.10"` for temporary database testing
+   - `tokio = { features = ["test-util"] }` for async test support
+
+### Test Results
+```bash
+cargo test --features sqlite-vec
+# running 35 tests ... test result: ok. 35 passed; 0 failed
+```
+
+---
+
+## 🎯 Recommended Next Steps (Phase 4B/5)
+
+**Priority 1**: Performance optimization (Phase 4 Option B)
+- Cache embedding model in memory (avoid reloading ~2-3s per query)
 - Improve search speed and reduce latency
 - Add connection pooling
 - ~2-4 hours of work
 
-**Priority 3**: Clean up unused code (Phase 4 Option C)
-- Remove deprecated sync methods
+**Priority 2**: Clean up unused code (Phase 4 Option C)
+- Remove deprecated sync methods (6 methods)
 - Cleaner codebase with fewer warnings
 - ~1 hour of work
+
+**Priority 3**: Add more integration tests
+- Async hybrid search tests (requires tokio::test)
+- Vector search with mock embeddings
+- End-to-end CLI tests using assert_cmd
 
 ---
 
@@ -363,7 +395,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ## 🎉 Summary
 
-**Phase 1, 2 & 3 Complete!** The QMD Rust project now has:
+**Phase 1, 2, 3 & 4A Complete!** The QMD Rust project now has:
 - ✅ Full vector search implementation with sqlite-vec (768-dim)
 - ✅ Real embedding model integration (nomic-embed-text-v1.5 with GPU acceleration)
 - ✅ Hybrid search combining BM25 + Vector search
@@ -372,5 +404,6 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 - ✅ Async/await throughout the codebase
 - ✅ All runtime issues resolved
 - ✅ Semantic search working with real embeddings (no more random vectors!)
+- ✅ **35 unit tests** covering RRF fusion, BM25 search, query expansion, embedding normalization, schema init
 
-**Next**: Add unit tests to ensure code quality and prevent regressions!
+**Next**: Performance optimization (model caching) or code cleanup (remove unused sync methods)!

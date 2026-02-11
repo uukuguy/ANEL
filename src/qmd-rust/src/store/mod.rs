@@ -837,3 +837,414 @@ impl Store {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::CollectionConfig;
+
+    /// Initialize sqlite-vec for tests that need database access
+    fn init_test_db(path: &std::path::Path) -> Connection {
+        Store::init_sqlite_vec().unwrap();
+        let conn = Connection::open(path).unwrap();
+        Store::init_schema(&conn).unwrap();
+        conn
+    }
+
+    /// Helper to create a SearchResult for testing
+    fn make_result(path: &str, score: f32) -> SearchResult {
+        SearchResult {
+            path: path.to_string(),
+            collection: "test".to_string(),
+            score,
+            lines: 0,
+            title: path.to_string(),
+            hash: format!("hash_{}", path),
+        }
+    }
+
+    // ==================== RRF Fusion Tests ====================
+
+    #[test]
+    fn test_rrf_fusion_empty_input() {
+        let result = Store::rrf_fusion(&[], None, 60);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_rrf_fusion_single_empty_list() {
+        let result = Store::rrf_fusion(&[vec![]], None, 60);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_rrf_fusion_single_list() {
+        let list = vec![
+            make_result("doc1.md", 0.9),
+            make_result("doc2.md", 0.8),
+            make_result("doc3.md", 0.7),
+        ];
+        let result = Store::rrf_fusion(&[list], None, 60);
+
+        assert_eq!(result.len(), 3);
+        // First result should have highest RRF score (1/60 + top-rank bonus)
+        assert_eq!(result[0].path, "doc1.md");
+        assert_eq!(result[1].path, "doc2.md");
+        assert_eq!(result[2].path, "doc3.md");
+        // Verify ordering: scores should be descending
+        assert!(result[0].score > result[1].score);
+        assert!(result[1].score > result[2].score);
+    }
+
+    #[test]
+    fn test_rrf_fusion_two_lists_deduplication() {
+        // Same document appears in both lists
+        let list1 = vec![
+            make_result("doc1.md", 0.9),
+            make_result("doc2.md", 0.8),
+        ];
+        let list2 = vec![
+            make_result("doc2.md", 0.95), // doc2 appears in both
+            make_result("doc3.md", 0.7),
+        ];
+        let result = Store::rrf_fusion(&[list1, list2], None, 60);
+
+        // Should have 3 unique documents
+        assert_eq!(result.len(), 3);
+
+        // doc2 should rank highest because it appears in both lists
+        // RRF(doc2) = 1/(60+1) + 1/(60+0) = ~0.0164 + ~0.0167 = ~0.033
+        // RRF(doc1) = 1/(60+0) = ~0.0167
+        // RRF(doc3) = 1/(60+1) = ~0.0164
+        assert_eq!(result[0].path, "doc2.md");
+    }
+
+    #[test]
+    fn test_rrf_fusion_with_weights() {
+        let list1 = vec![make_result("doc1.md", 0.9)];
+        let list2 = vec![make_result("doc2.md", 0.8)];
+
+        // Give list2 much higher weight
+        let weights = Some(vec![1.0, 10.0]);
+        let result = Store::rrf_fusion(&[list1, list2], weights, 60);
+
+        assert_eq!(result.len(), 2);
+        // doc2 should rank higher due to 10x weight
+        assert_eq!(result[0].path, "doc2.md");
+        assert_eq!(result[1].path, "doc1.md");
+    }
+
+    #[test]
+    fn test_rrf_fusion_top_rank_bonus() {
+        // Single list with 15 items to test all bonus tiers
+        let list: Vec<SearchResult> = (0..15)
+            .map(|i| make_result(&format!("doc{}.md", i), 1.0 - i as f32 * 0.01))
+            .collect();
+        let result = Store::rrf_fusion(&[list], None, 60);
+
+        assert_eq!(result.len(), 15);
+
+        // Rank 0 gets +0.05 bonus
+        // Rank 1,2 get +0.02 bonus
+        // Rank 3-9 get +0.01 bonus
+        // Rank 10+ get no bonus
+
+        // Base RRF for rank 0: 1/60 ≈ 0.01667, + 0.05 = ~0.06667
+        // Base RRF for rank 1: 1/61 ≈ 0.01639, + 0.02 = ~0.03639
+        let first_score = result[0].score;
+        let second_score = result[1].score;
+        assert!(first_score > 0.06, "First place should have bonus: {}", first_score);
+        assert!(second_score > 0.03, "Second place should have bonus: {}", second_score);
+    }
+
+    #[test]
+    fn test_rrf_fusion_k_parameter() {
+        let list = vec![
+            make_result("doc1.md", 0.9),
+            make_result("doc2.md", 0.8),
+        ];
+
+        // With k=1, scores are 1/(1+0)=1.0 and 1/(1+1)=0.5
+        let result_k1 = Store::rrf_fusion(&[list.clone()], None, 1);
+        // With k=100, scores are 1/(100+0)=0.01 and 1/(100+1)≈0.0099
+        let result_k100 = Store::rrf_fusion(&[list], None, 100);
+
+        // k=1 should produce larger score differences
+        let diff_k1 = result_k1[0].score - result_k1[1].score;
+        let diff_k100 = result_k100[0].score - result_k100[1].score;
+        assert!(diff_k1 > diff_k100, "Smaller k should produce larger score gaps");
+    }
+
+    #[test]
+    fn test_rrf_fusion_preserves_metadata() {
+        let list = vec![SearchResult {
+            path: "test/doc.md".to_string(),
+            collection: "my_collection".to_string(),
+            score: 0.5,
+            lines: 42,
+            title: "Test Document".to_string(),
+            hash: "abc123".to_string(),
+        }];
+        let result = Store::rrf_fusion(&[list], None, 60);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "test/doc.md");
+        assert_eq!(result[0].collection, "my_collection");
+        assert_eq!(result[0].lines, 42);
+        assert_eq!(result[0].title, "Test Document");
+        assert_eq!(result[0].hash, "abc123");
+    }
+
+    #[test]
+    fn test_rrf_fusion_three_lists() {
+        let list1 = vec![make_result("a.md", 0.9), make_result("b.md", 0.8)];
+        let list2 = vec![make_result("b.md", 0.95), make_result("c.md", 0.7)];
+        let list3 = vec![make_result("b.md", 0.85), make_result("a.md", 0.6)];
+
+        let result = Store::rrf_fusion(&[list1, list2, list3], None, 60);
+
+        assert_eq!(result.len(), 3);
+        // b.md appears in all 3 lists, should rank first
+        assert_eq!(result[0].path, "b.md");
+        // a.md appears in 2 lists, should rank second
+        assert_eq!(result[1].path, "a.md");
+    }
+
+    // ==================== SearchResult Tests ====================
+
+    #[test]
+    fn test_search_result_equality() {
+        let r1 = make_result("doc.md", 0.5);
+        let r2 = make_result("doc.md", 0.5);
+        assert_eq!(r1, r2);
+    }
+
+    #[test]
+    fn test_search_result_clone() {
+        let r1 = make_result("doc.md", 0.5);
+        let r2 = r1.clone();
+        assert_eq!(r1.path, r2.path);
+        assert_eq!(r1.score, r2.score);
+    }
+
+    #[test]
+    fn test_search_result_serialize() {
+        let r = make_result("doc.md", 0.75);
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(json.contains("\"path\":\"doc.md\""));
+        assert!(json.contains("\"score\":0.75"));
+    }
+
+    // ==================== SearchOptions Tests ====================
+
+    #[test]
+    fn test_search_options_defaults() {
+        let opts = SearchOptions {
+            limit: 10,
+            min_score: 0.0,
+            collection: None,
+            search_all: false,
+        };
+        assert_eq!(opts.limit, 10);
+        assert!(!opts.search_all);
+    }
+
+    // ==================== Config Integration Tests ====================
+
+    #[test]
+    fn test_config_db_path() {
+        let config = Config::default();
+        let db_path = config.db_path_for("test_collection");
+        assert!(db_path.to_string_lossy().contains("test_collection"));
+        assert!(db_path.to_string_lossy().ends_with("index.db"));
+    }
+
+    // ==================== Hash Calculation Tests ====================
+
+    #[test]
+    fn test_calculate_hash_deterministic() {
+        let hash1 = Store::calculate_hash("hello world");
+        let hash2 = Store::calculate_hash("hello world");
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_calculate_hash_different_inputs() {
+        let hash1 = Store::calculate_hash("hello");
+        let hash2 = Store::calculate_hash("world");
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_calculate_hash_empty_string() {
+        let hash = Store::calculate_hash("");
+        assert!(!hash.is_empty());
+        // SHA256 of empty string is well-known
+        assert_eq!(hash, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    }
+
+    // ==================== Store with TempDir Tests ====================
+
+    #[test]
+    fn test_store_init_schema() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let conn = init_test_db(&db_path);
+
+        // Verify tables exist
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='documents'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+
+        // Verify FTS table exists
+        let fts_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='documents_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(fts_count, 1);
+
+        // Verify content_vectors table exists
+        let cv_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='content_vectors'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(cv_count, 1);
+    }
+
+    #[test]
+    fn test_bm25_search_with_data() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test_col").join("index.db");
+        std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+
+        let config = Config {
+            collections: vec![CollectionConfig {
+                name: "test_col".to_string(),
+                path: tmp.path().to_path_buf(),
+                pattern: None,
+                description: None,
+            }],
+            cache_path: tmp.path().to_path_buf(),
+            ..Config::default()
+        };
+
+        // Use init_test_db to load sqlite-vec extension
+        let conn = init_test_db(&db_path);
+
+        // Insert test documents
+        conn.execute(
+            "INSERT INTO documents (collection, path, title, hash, doc, created_at, modified_at, active)
+             VALUES ('test_col', 'rust_guide.md', 'Rust Programming Guide', 'hash1', 'Rust is a systems programming language', datetime('now'), datetime('now'), 1)",
+            [],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO documents (collection, path, title, hash, doc, created_at, modified_at, active)
+             VALUES ('test_col', 'python_guide.md', 'Python Tutorial', 'hash2', 'Python is a dynamic programming language', datetime('now'), datetime('now'), 1)",
+            [],
+        ).unwrap();
+
+        drop(conn);
+
+        let store = Store {
+            config,
+            connections: HashMap::new(),
+        };
+
+        let opts = SearchOptions {
+            limit: 10,
+            min_score: 0.0,
+            collection: Some("test_col".to_string()),
+            search_all: false,
+        };
+
+        let results = store.bm25_search("Rust programming", opts).unwrap();
+        assert!(!results.is_empty(), "BM25 search should find 'Rust programming'");
+        assert_eq!(results[0].path, "test_col/rust_guide.md");
+    }
+
+    #[test]
+    fn test_bm25_search_no_results() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test_col").join("index.db");
+        std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+
+        let config = Config {
+            collections: vec![CollectionConfig {
+                name: "test_col".to_string(),
+                path: tmp.path().to_path_buf(),
+                pattern: None,
+                description: None,
+            }],
+            cache_path: tmp.path().to_path_buf(),
+            ..Config::default()
+        };
+
+        let conn = init_test_db(&db_path);
+
+        conn.execute(
+            "INSERT INTO documents (collection, path, title, hash, doc, created_at, modified_at, active)
+             VALUES ('test_col', 'doc.md', 'Test', 'hash1', 'Hello world', datetime('now'), datetime('now'), 1)",
+            [],
+        ).unwrap();
+
+        drop(conn);
+
+        let store = Store {
+            config,
+            connections: HashMap::new(),
+        };
+
+        let opts = SearchOptions {
+            limit: 10,
+            min_score: 0.0,
+            collection: Some("test_col".to_string()),
+            search_all: false,
+        };
+
+        let results = store.bm25_search("nonexistent_xyz_query", opts).unwrap();
+        assert!(results.is_empty(), "Should find no results for unrelated query");
+    }
+
+    #[test]
+    fn test_get_stats_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test_col").join("index.db");
+        std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+
+        let config = Config {
+            collections: vec![CollectionConfig {
+                name: "test_col".to_string(),
+                path: tmp.path().to_path_buf(),
+                pattern: None,
+                description: None,
+            }],
+            cache_path: tmp.path().to_path_buf(),
+            ..Config::default()
+        };
+
+        // Init schema so the table exists
+        let conn = init_test_db(&db_path);
+        drop(conn);
+
+        let store = Store {
+            config,
+            connections: HashMap::new(),
+        };
+
+        let stats = store.get_stats().unwrap();
+        assert_eq!(stats.collection_count, 1);
+        assert_eq!(stats.document_count, 0);
+    }
+}

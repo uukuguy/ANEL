@@ -575,3 +575,193 @@ impl QueryExpander for RemoteQueryExpander {
         Ok(expansions)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== LocalQueryExpander Tests ====================
+
+    #[test]
+    fn test_local_expander_keyword_match() {
+        let expander = LocalQueryExpander::new("rule-based").unwrap();
+        let result = expander.expand("how to install rust").unwrap();
+
+        // "how" should trigger expansions with "how to", "guide", "tutorial"
+        // "install" should trigger "installation", "setup", "deployment"
+        assert!(!result.is_empty(), "Should generate expansions for 'how' and 'install'");
+    }
+
+    #[test]
+    fn test_local_expander_no_keyword_match() {
+        let expander = LocalQueryExpander::new("rule-based").unwrap();
+        let result = expander.expand("rust programming language").unwrap();
+
+        // No keywords match, should fall back to phrase-based expansion
+        // "programming language" and "language" should be generated
+        assert!(!result.is_empty(), "Should generate phrase-based expansions for multi-word query");
+    }
+
+    #[test]
+    fn test_local_expander_single_word_no_match() {
+        let expander = LocalQueryExpander::new("rule-based").unwrap();
+        let result = expander.expand("rust").unwrap();
+
+        // Single word, no keyword match, no phrase expansion possible
+        assert!(result.is_empty(), "Single word with no keyword match should produce no expansions");
+    }
+
+    #[test]
+    fn test_local_expander_max_expansions() {
+        let expander = LocalQueryExpander::new("rule-based").unwrap();
+        let result = expander.expand("how to install config api doc error").unwrap();
+
+        // Many keywords match, but should be limited to 3
+        assert!(result.len() <= 3, "Should limit to 3 expansions, got {}", result.len());
+    }
+
+    #[test]
+    fn test_local_expander_no_duplicates() {
+        let expander = LocalQueryExpander::new("rule-based").unwrap();
+        let result = expander.expand("config settings").unwrap();
+
+        let mut seen = std::collections::HashSet::new();
+        for expansion in &result {
+            assert!(seen.insert(expansion), "Duplicate expansion found: {}", expansion);
+        }
+    }
+
+    // ==================== Router expand_query Tests ====================
+
+    #[test]
+    fn test_router_expand_query_always_includes_original() {
+        let config = crate::config::Config {
+            models: crate::config::ModelsConfig {
+                embed: None,
+                rerank: None,
+                query_expansion: Some(crate::config::LLMModelConfig {
+                    local: Some("rule-based".to_string()),
+                    remote: None,
+                }),
+            },
+            ..crate::config::Config::default()
+        };
+
+        let router = Router::new(&config).unwrap();
+        let result = router.expand_query("test query").unwrap();
+
+        assert!(result.contains(&"test query".to_string()),
+            "Expanded queries should always include the original");
+    }
+
+    #[test]
+    fn test_router_expand_query_max_5() {
+        let config = crate::config::Config {
+            models: crate::config::ModelsConfig {
+                embed: None,
+                rerank: None,
+                query_expansion: Some(crate::config::LLMModelConfig {
+                    local: Some("rule-based".to_string()),
+                    remote: None,
+                }),
+            },
+            ..crate::config::Config::default()
+        };
+
+        let router = Router::new(&config).unwrap();
+        let result = router.expand_query("how to install config api").unwrap();
+
+        assert!(result.len() <= 5, "Should limit to 5 total expansions, got {}", result.len());
+    }
+
+    #[test]
+    fn test_router_expand_query_no_duplicates() {
+        let config = crate::config::Config {
+            models: crate::config::ModelsConfig {
+                embed: None,
+                rerank: None,
+                query_expansion: Some(crate::config::LLMModelConfig {
+                    local: Some("rule-based".to_string()),
+                    remote: None,
+                }),
+            },
+            ..crate::config::Config::default()
+        };
+
+        let router = Router::new(&config).unwrap();
+        let result = router.expand_query("config setup").unwrap();
+
+        let mut seen = std::collections::HashSet::new();
+        for q in &result {
+            assert!(seen.insert(q), "Duplicate query found: {}", q);
+        }
+    }
+
+    // ==================== Router has_embedder / has_reranker Tests ====================
+
+    #[test]
+    fn test_router_no_providers() {
+        let config = crate::config::Config::default();
+        let router = Router::new(&config).unwrap();
+
+        assert!(!router.has_embedder());
+        assert!(!router.has_reranker());
+    }
+
+    #[test]
+    fn test_router_with_local_embedder() {
+        let config = crate::config::Config {
+            models: crate::config::ModelsConfig {
+                embed: Some(crate::config::LLMModelConfig {
+                    local: Some("test-model".to_string()),
+                    remote: None,
+                }),
+                rerank: None,
+                query_expansion: None,
+            },
+            ..crate::config::Config::default()
+        };
+
+        let router = Router::new(&config).unwrap();
+        assert!(router.has_embedder());
+        assert!(!router.has_reranker());
+    }
+
+    // ==================== Normalize Embedding Tests ====================
+
+    #[test]
+    fn test_normalize_embedding_unit_vector() {
+        let embedding = vec![1.0, 0.0, 0.0];
+        let normalized = LocalEmbedder::normalize_embedding(&embedding);
+        assert_eq!(normalized, vec![1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_normalize_embedding_magnitude() {
+        let embedding = vec![3.0, 4.0];
+        let normalized = LocalEmbedder::normalize_embedding(&embedding);
+
+        // magnitude = 5.0, so normalized = [0.6, 0.8]
+        assert!((normalized[0] - 0.6).abs() < 1e-6);
+        assert!((normalized[1] - 0.8).abs() < 1e-6);
+
+        // Verify unit length
+        let mag: f32 = normalized.iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!((mag - 1.0).abs() < 1e-6, "Normalized vector should have unit length");
+    }
+
+    #[test]
+    fn test_normalize_embedding_zero_vector() {
+        let embedding = vec![0.0, 0.0, 0.0];
+        let normalized = LocalEmbedder::normalize_embedding(&embedding);
+        assert_eq!(normalized, vec![0.0, 0.0, 0.0]);
+    }
+
+    // ==================== LLMProvider Display Tests ====================
+
+    #[test]
+    fn test_llm_provider_display() {
+        assert_eq!(format!("{}", LLMProvider::Local), "local");
+        assert_eq!(format!("{}", LLMProvider::Remote), "remote");
+    }
+}
