@@ -1,7 +1,7 @@
 # Next Session Guide - QMD Development
 
 **Last Updated**: 2026-02-12
-**Current Phase**: Phase 4B & 4C Complete ✅
+**Current Phase**: Phase 4D Complete ✅
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
 
@@ -395,7 +395,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ## 🎉 Summary
 
-**Phase 1, 2, 3, 4A, 4B & 4C Complete!** The QMD Rust project now has:
+**Phase 1, 2, 3, 4A, 4B, 4C & 4D Complete!** The QMD Rust project now has:
 - ✅ Full vector search implementation with sqlite-vec (768-dim)
 - ✅ Real embedding model integration (nomic-embed-text-v1.5 with GPU acceleration)
 - ✅ Hybrid search combining BM25 + Vector search
@@ -405,7 +405,36 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 - ✅ All runtime issues resolved
 - ✅ Semantic search working with real embeddings (no more random vectors!)
 - ✅ **35 unit tests** covering RRF fusion, BM25 search, query expansion, embedding normalization, schema init
+- ✅ **41 integration tests** covering store, formatter, config, hybrid search, CLI
+- ✅ **vec0 graceful degradation** — sqlite-vec table creation no longer crashes when extension unavailable
 - ✅ **Model caching** - embedding model loads once, reused across queries (Mutex<Option<CachedLlamaModel>>)
 - ✅ **Code cleanup** - removed 6 deprecated sync methods, cleaner async-only codebase
 
-**Next**: Add more integration tests (async hybrid search, mock embeddings, CLI e2e tests)!
+**Next**: Consider performance benchmarks, MCP module re-enablement, or additional edge-case tests.
+
+---
+
+## 🎯 Phase 4D Status: COMPLETED ✅
+
+### What Was Accomplished
+
+1. **Integration Test Suite (41 tests across 5 files)**
+   - `tests/common/mod.rs` — Shared helpers: `create_test_config`, `init_test_db`, `insert_test_doc`
+   - `tests/store_integration.rs` (7 tests) — Store lifecycle, update_index, multi-collection BM25 search, stats
+   - `tests/formatter_integration.rs` (14 tests) — All 5 output formats, JSON roundtrip, empty results, limit
+   - `tests/config_integration.rs` (8 tests) — Defaults, YAML roundtrip, path generation, backend serde
+   - `tests/hybrid_search_integration.rs` (6 tests) — BM25 fallback, query expansion, expanded search, limits
+   - `tests/cli_integration.rs` (6 tests) — help, version, no-args, search/status/update commands
+
+2. **Bug Fixes in Source Code**
+   - `store/mod.rs`: Made `vectors_vec` table creation graceful when sqlite-vec not loaded (was crashing 4 unit tests)
+   - `store/mod.rs`: Added `Deserialize` derive to `SearchResult` for JSON roundtrip testing
+
+3. **Dev Dependencies Added**
+   - `assert_cmd = "2"` and `predicates = "3"` for CLI integration tests
+
+### Test Results
+```bash
+cargo test
+# 76 tests total: 35 unit + 41 integration — all passing
+```

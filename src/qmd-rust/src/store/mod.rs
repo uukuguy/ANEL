@@ -2,12 +2,12 @@ use crate::config::{Config, BM25Backend};
 use crate::llm::Router;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use log::{info, warn};
 
 /// Search result structure
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchResult {
     pub path: String,
     pub collection: String,
@@ -153,13 +153,15 @@ impl Store {
             END;
         "#)?;
 
-        conn.execute_batch(r#"
-            -- Vector storage (sqlite-vec if available)
+        // Vector storage — requires sqlite-vec extension; skip gracefully if unavailable
+        if let Err(e) = conn.execute_batch(r#"
             CREATE VIRTUAL TABLE IF NOT EXISTS vectors_vec USING vec0(
                 hash_seq TEXT PRIMARY KEY,
                 embedding float[768] distance_metric=cosine
             );
-        "#)?;
+        "#) {
+            warn!("Could not create vectors_vec table (sqlite-vec may not be loaded): {}", e);
+        }
 
         conn.execute_batch(r#"
             -- Vector metadata
