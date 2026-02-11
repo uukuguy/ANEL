@@ -252,15 +252,6 @@ impl Store {
         Ok(results)
     }
 
-    /// Vector search (placeholder for sqlite-vec)
-    ///
-    /// Note: For actual vector search, use `vector_search_with_embedder` with an LLM embedder.
-    /// This method falls back to BM25 if no embedder is available.
-    pub fn vector_search(&self, query: &str, options: SearchOptions) -> Result<Vec<SearchResult>> {
-        warn!("Vector search using BM25 fallback (embedder not available)");
-        self.bm25_search(query, options)
-    }
-
     /// Vector search with explicit embedder (async version)
     ///
     /// Uses the provided LLM to generate embeddings and performs similarity search.
@@ -272,50 +263,6 @@ impl Store {
     ) -> Result<Vec<SearchResult>> {
         // Generate embedding for the query (async)
         let embedding_result = llm.embed(&[query]).await?;
-
-        info!("Generated embedding with {} dimensions, provider: {}",
-              embedding_result.embeddings[0].len(), embedding_result.provider);
-
-        // Get the embedding vector
-        let query_vector = &embedding_result.embeddings[0];
-
-        // Perform vector search in each collection
-        let mut results = Vec::new();
-
-        let collections: Vec<&str> = if options.search_all {
-            self.config.collections.iter().map(|c| c.name.as_str()).collect()
-        } else if let Some(ref name) = options.collection {
-            vec![name.as_str()]
-        } else if let Some(col) = self.config.collections.first() {
-            vec![col.name.as_str()]
-        } else {
-            return Ok(results);
-        };
-
-        for collection in collections {
-            if let Ok(conn) = self.get_connection(collection) {
-                let collection_results = self.vector_search_in_db(&conn, query_vector, options.limit)?;
-                results.extend(collection_results);
-            }
-        }
-
-        // Sort by score (cosine distance - lower is better)
-        results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
-
-        Ok(results)
-    }
-
-    /// Vector search with explicit embedder
-    ///
-    /// Uses the provided LLM to generate embeddings and performs similarity search.
-    pub fn vector_search_with_embedder(
-        &self,
-        query: &str,
-        options: SearchOptions,
-        llm: &Router,
-    ) -> Result<Vec<SearchResult>> {
-        // Generate embedding for the query
-        let embedding_result = llm.embed_sync(query)?;
 
         info!("Generated embedding with {} dimensions, provider: {}",
               embedding_result.embeddings[0].len(), embedding_result.provider);
@@ -597,91 +544,6 @@ impl Store {
                 hash: data.4,
             }
         }).collect()
-    }
-
-    /// Embed a collection
-    pub fn embed_collection(&self, collection: &str, llm: &Router, force: bool) -> Result<()> {
-        info!("Embedding collection: {}", collection);
-
-        if !llm.has_embedder() {
-            warn!("No embedder available, skipping embedding");
-            return Ok(());
-        }
-
-        let conn = self.get_connection(collection)?;
-
-        // Get all documents that need embedding
-        let mut stmt = if force {
-            conn.prepare("SELECT id, hash, doc FROM documents WHERE active = 1")?
-        } else {
-            conn.prepare(
-                "SELECT id, hash, doc FROM documents
-                 WHERE active = 1
-                 AND hash NOT IN (SELECT DISTINCT hash FROM content_vectors)"
-            )?
-        };
-
-        let docs: Vec<(i64, String, String)> = stmt
-            .query_map([], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        info!("Found {} documents to embed", docs.len());
-
-        // Process documents in batches
-        let batch_size = 10;
-        for (batch_idx, chunk) in docs.chunks(batch_size).enumerate() {
-            info!("Processing batch {}/{}", batch_idx + 1, (docs.len() + batch_size - 1) / batch_size);
-
-            // Prepare texts for embedding
-            let texts: Vec<&str> = chunk.iter().map(|(_, _, doc)| doc.as_str()).collect();
-
-            // Generate embeddings
-            let embedding_result = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    llm.embed(&texts).await
-                })
-            })?;
-
-            info!("Generated {} embeddings with model: {}",
-                  embedding_result.embeddings.len(), embedding_result.model);
-
-            // Store embeddings
-            for (i, (doc_id, hash, _)) in chunk.iter().enumerate() {
-                let embedding = &embedding_result.embeddings[i];
-                let embedding_json = serde_json::to_string(embedding)?;
-
-                // Store in content_vectors metadata table
-                conn.execute(
-                    "INSERT OR REPLACE INTO content_vectors (hash, seq, pos, model, embedded_at)
-                     VALUES (?, 0, 0, ?, datetime('now'))",
-                    [hash, &embedding_result.model],
-                )?;
-
-                // Store in vectors_vec table
-                let hash_seq = format!("{}_{}", hash, 0);
-                conn.execute(
-                    "INSERT OR REPLACE INTO vectors_vec (hash_seq, embedding)
-                     VALUES (?, ?)",
-                    [&hash_seq, &embedding_json],
-                )?;
-
-                info!("Stored embedding for document {} (hash: {})", doc_id, hash);
-            }
-        }
-
-        info!("Embedding complete for collection: {}", collection);
-        Ok(())
-    }
-
-    /// Embed all collections
-    pub fn embed_all_collections(&self, llm: &Router, force: bool) -> Result<()> {
-        for collection in &self.config.collections {
-            self.embed_collection(&collection.name, llm, force)?;
-        }
-        Ok(())
     }
 
     /// Update index

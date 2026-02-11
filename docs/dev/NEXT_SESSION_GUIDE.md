@@ -1,7 +1,7 @@
 # Next Session Guide - QMD Development
 
-**Last Updated**: 2026-02-11
-**Current Phase**: Real Embedding Model Integration - Phase 3 Complete ✅
+**Last Updated**: 2026-02-12
+**Current Phase**: Phase 4B & 4C Complete ✅
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
 
@@ -311,16 +311,16 @@ cargo test --features sqlite-vec
 
 ## 🎯 Recommended Next Steps (Phase 4B/5)
 
-**Priority 1**: Performance optimization (Phase 4 Option B)
-- Cache embedding model in memory (avoid reloading ~2-3s per query)
-- Improve search speed and reduce latency
-- Add connection pooling
-- ~2-4 hours of work
+**Priority 1**: Performance optimization (Phase 4 Option B) ✅ COMPLETED
+- ✅ Cached embedding model in memory using Mutex<Option<CachedLlamaModel>>
+- ✅ Model loads once on first query, reused for subsequent calls
+- ✅ Context created per-call (lightweight), model persists
 
-**Priority 2**: Clean up unused code (Phase 4 Option C)
-- Remove deprecated sync methods (6 methods)
-- Cleaner codebase with fewer warnings
-- ~1 hour of work
+**Priority 2**: Clean up unused code (Phase 4 Option C) ✅ COMPLETED
+- ✅ Removed 6 deprecated sync methods:
+  - store/mod.rs: vector_search(), vector_search_with_embedder()
+  - store/mod.rs: embed_collection(), embed_all_collections()
+  - llm/mod.rs: embed_sync(), rerank_sync()
 
 **Priority 3**: Add more integration tests
 - Async hybrid search tests (requires tokio::test)
@@ -335,13 +335,13 @@ cargo test --features sqlite-vec
    - Solution: `RUSTFLAGS="-L /opt/homebrew/opt/libomp/lib -l omp" cargo build --features "sqlite-vec,llama-cpp"`
    - Alternative: Use sqlite-vec only (random vectors fallback)
 
-2. **Model reloading** - Model loads on every query (performance issue)
-   - Impact: ~2-3 seconds per query for model initialization
-   - Fix: Implement model caching (Priority 2)
+2. **Model reloading** - Model loads on every query (performance issue) ✅ RESOLVED
+   - Solution: Implemented Mutex<Option<CachedLlamaModel>> in LocalEmbedder
+   - Model loads once on first query, cached for subsequent calls
+   - Context created per-call (lightweight)
 
-3. **Unused method warnings** - Several sync methods marked as unused
-   - Impact: Compiler warnings but no functional issues
-   - Fix: Clean up code (Priority 3)
+3. **Unused method warnings** - Several sync methods marked as unused ✅ RESOLVED
+   - Solution: Removed all 6 deprecated sync methods
 
 ---
 
@@ -395,7 +395,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ## 🎉 Summary
 
-**Phase 1, 2, 3 & 4A Complete!** The QMD Rust project now has:
+**Phase 1, 2, 3, 4A, 4B & 4C Complete!** The QMD Rust project now has:
 - ✅ Full vector search implementation with sqlite-vec (768-dim)
 - ✅ Real embedding model integration (nomic-embed-text-v1.5 with GPU acceleration)
 - ✅ Hybrid search combining BM25 + Vector search
@@ -405,5 +405,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 - ✅ All runtime issues resolved
 - ✅ Semantic search working with real embeddings (no more random vectors!)
 - ✅ **35 unit tests** covering RRF fusion, BM25 search, query expansion, embedding normalization, schema init
+- ✅ **Model caching** - embedding model loads once, reused across queries (Mutex<Option<CachedLlamaModel>>)
+- ✅ **Code cleanup** - removed 6 deprecated sync methods, cleaner async-only codebase
 
-**Next**: Performance optimization (model caching) or code cleanup (remove unused sync methods)!
+**Next**: Add more integration tests (async hybrid search, mock embeddings, CLI e2e tests)!

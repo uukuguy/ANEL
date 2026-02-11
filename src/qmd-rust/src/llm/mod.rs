@@ -2,6 +2,8 @@ use crate::config::Config;
 use anyhow::Result;
 use std::fmt;
 use std::path::PathBuf;
+#[cfg(feature = "llama-cpp")]
+use std::sync::Mutex;
 
 /// Common query expansion terms for knowledge base searches
 const EXPANSION_TERMS: &[(&str, &[&str])] = &[
@@ -142,26 +144,6 @@ impl Router {
         anyhow::bail!("No embedder available")
     }
 
-    /// Synchronous embedding wrapper
-    ///
-    /// Uses tokio runtime to run async embed() from sync context.
-    /// Useful for embedding queries in synchronous code paths.
-    pub fn embed_sync(&self, text: &str) -> Result<EmbeddingResult> {
-        let text_ref = &[text];
-        tokio::runtime::Handle::current().block_on(async {
-            self.embed(text_ref).await
-        })
-    }
-
-    /// Synchronous reranking wrapper
-    ///
-    /// Uses tokio runtime to run async rerank() from sync context.
-    pub fn rerank_sync(&self, query: &str, docs: &[crate::store::SearchResult]) -> Result<Vec<f32>> {
-        tokio::runtime::Handle::current().block_on(async {
-            self.rerank(query, docs).await
-        })
-    }
-
     /// Rerank documents
     pub async fn rerank(&self, query: &str, docs: &[crate::store::SearchResult]) -> Result<Vec<f32>> {
         let doc_texts: Vec<&str> = docs.iter().map(|d| d.title.as_str()).collect();
@@ -240,10 +222,24 @@ impl Router {
     }
 }
 
+/// Cached llama.cpp model state to avoid reloading on every query
+#[cfg(feature = "llama-cpp")]
+struct CachedLlamaModel {
+    backend: llama_cpp_2::llama_backend::LlamaBackend,
+    model: llama_cpp_2::model::LlamaModel,
+}
+
+// Safety: LlamaBackend and LlamaModel are C FFI types that are not Send by default.
+// We protect all access through a Mutex, ensuring single-threaded access to the model.
+#[cfg(feature = "llama-cpp")]
+unsafe impl Send for CachedLlamaModel {}
+
 /// Local embedding provider (llama.cpp)
 pub struct LocalEmbedder {
     model_path: PathBuf,
     model_name: String,
+    #[cfg(feature = "llama-cpp")]
+    cached_model: Mutex<Option<CachedLlamaModel>>,
 }
 
 impl LocalEmbedder {
@@ -259,6 +255,8 @@ impl LocalEmbedder {
         Ok(Self {
             model_path,
             model_name: model_name.to_string(),
+            #[cfg(feature = "llama-cpp")]
+            cached_model: Mutex::new(None),
         })
     }
 
@@ -294,43 +292,64 @@ impl LocalEmbedder {
     }
 
     #[cfg(feature = "llama-cpp")]
-    async fn embed_with_llama_cpp(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+    fn ensure_model_loaded(&self) -> Result<()> {
         use llama_cpp_2::llama_backend::LlamaBackend;
-        use llama_cpp_2::model::{LlamaModel, AddBos};
+        use llama_cpp_2::model::LlamaModel;
         use llama_cpp_2::model::params::LlamaModelParams;
-        use llama_cpp_2::context::params::LlamaContextParams;
-        use llama_cpp_2::llama_batch::LlamaBatch;
 
-        // Initialize llama.cpp backend
+        let mut cache = self.cached_model.lock()
+            .map_err(|e| anyhow::anyhow!("Failed to acquire model lock: {}", e))?;
+
+        if cache.is_some() {
+            log::info!("Using cached embedding model");
+            return Ok(());
+        }
+
+        log::info!("Loading embedding model for the first time...");
+
         let backend = LlamaBackend::init()
             .map_err(|e| anyhow::anyhow!("Failed to initialize llama backend: {:?}", e))?;
 
-        // Load model with GPU acceleration if available
         let model_params = LlamaModelParams::default()
-            .with_n_gpu_layers(1000); // Offload all layers to GPU if available
+            .with_n_gpu_layers(1000);
 
         let model = LlamaModel::load_from_file(&backend, &self.model_path, &model_params)
             .map_err(|e| anyhow::anyhow!("Failed to load model: {:?}", e))?;
 
-        log::info!("Model loaded: vocab={}, embd_dim={}", model.n_vocab(), model.n_embd());
+        log::info!("Model loaded and cached: vocab={}, embd_dim={}", model.n_vocab(), model.n_embd());
 
-        // Create context with embeddings enabled
+        *cache = Some(CachedLlamaModel { backend, model });
+        Ok(())
+    }
+
+    #[cfg(feature = "llama-cpp")]
+    async fn embed_with_llama_cpp(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        use llama_cpp_2::model::AddBos;
+        use llama_cpp_2::context::params::LlamaContextParams;
+        use llama_cpp_2::llama_batch::LlamaBatch;
+
+        // Ensure model is loaded (cached after first call)
+        self.ensure_model_loaded()?;
+
+        let cache = self.cached_model.lock()
+            .map_err(|e| anyhow::anyhow!("Failed to acquire model lock: {}", e))?;
+        let cached = cache.as_ref().unwrap();
+
+        // Create context with embeddings enabled (lightweight, created per-call)
         let ctx_params = LlamaContextParams::default()
             .with_embeddings(true)
             .with_n_threads_batch(8);
 
-        let mut ctx = model.new_context(&backend, ctx_params)
+        let mut ctx = cached.model.new_context(&cached.backend, ctx_params)
             .map_err(|e| anyhow::anyhow!("Failed to create context: {:?}", e))?;
 
         let mut all_embeddings = Vec::new();
 
         // Process each text
         for text in texts {
-            // Tokenize text
-            let tokens = model.str_to_token(text, AddBos::Always)
+            let tokens = cached.model.str_to_token(text, AddBos::Always)
                 .map_err(|e| anyhow::anyhow!("Failed to tokenize: {:?}", e))?;
 
-            // Create batch and process
             let mut batch = LlamaBatch::new(ctx.n_ctx() as usize, 1);
             batch.add_sequence(&tokens, 0, false)
                 .map_err(|e| anyhow::anyhow!("Failed to add sequence: {:?}", e))?;
@@ -338,11 +357,9 @@ impl LocalEmbedder {
             ctx.decode(&mut batch)
                 .map_err(|e| anyhow::anyhow!("Failed to decode: {:?}", e))?;
 
-            // Get embeddings (mean pooling by default)
             let embeddings = ctx.embeddings_seq_ith(0)
                 .map_err(|e| anyhow::anyhow!("Failed to get embeddings: {:?}", e))?;
 
-            // Normalize embeddings for cosine similarity
             let normalized = Self::normalize_embedding(embeddings);
             all_embeddings.push(normalized);
         }
