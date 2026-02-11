@@ -157,7 +157,7 @@ impl Store {
             -- Vector storage (sqlite-vec if available)
             CREATE VIRTUAL TABLE IF NOT EXISTS vectors_vec USING vec0(
                 hash_seq TEXT PRIMARY KEY,
-                embedding float[384] distance_metric=cosine
+                embedding float[768] distance_metric=cosine
             );
         "#)?;
 

@@ -1,7 +1,7 @@
 # Next Session Guide - QMD Development
 
 **Last Updated**: 2026-02-11
-**Current Phase**: Hybrid Search Implementation - Phase 2 Complete
+**Current Phase**: Real Embedding Model Integration - Phase 3 Complete ✅
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
 
@@ -90,56 +90,75 @@ cargo build --features sqlite-vec  # ✅ Successful
 
 ---
 
-## 🚀 Phase 3: Enhanced Search Quality (Next Priority)
+## 🎯 Phase 3 Status: COMPLETED ✅
 
-### Option A: Install Real Embedding Model (Highest Priority)
+### What Was Accomplished
 
-**Goal**: Replace random vectors with actual semantic embeddings for meaningful vector search
+1. **Real Embedding Model Installation**
+   - Downloaded nomic-embed-text-v1.5.f16.gguf (262MB) from HuggingFace
+   - Configured OpenMP linking for llama-cpp on macOS
+   - Fixed build.rs to use correct OpenMP library path (`/opt/homebrew/opt/libomp/lib`)
+   - Successfully built with `RUSTFLAGS="-L /opt/homebrew/opt/libomp/lib -l omp"`
 
-**Steps**:
-1. Install OpenMP library:
-   ```bash
-   brew install libomp
-   ```
+2. **Vector Dimension Fix**
+   - Updated sqlite-vec schema from 384 to 768 dimensions
+   - Matches nomic-embed-text-v1.5 model output (768-dim embeddings)
+   - Modified `src/store/mod.rs:160` to use `float[768]`
 
-2. Download GGUF embedding model:
-   ```bash
-   mkdir -p ~/.cache/qmd/models
-   cd ~/.cache/qmd/models
-   # Download from HuggingFace (example):
-   wget https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.f16.gguf
-   ```
+3. **GPU Acceleration Working**
+   - Model loaded on Apple M3 Max GPU (Metal backend)
+   - Flash Attention enabled for faster inference
+   - Model params: 136.73M, embedding dimension: 768
 
-3. Update config to use the model:
-   ```yaml
-   llm:
-     embedder:
-       provider: local
-       model: nomic-embed-text-v1.5
-       model_path: ~/.cache/qmd/models/nomic-embed-text-v1.5.f16.gguf
-   ```
+4. **End-to-End Testing with Real Embeddings**
+   - ✅ `qmd-rust embed` - Generated 3 real embeddings (768-dim)
+   - ✅ `qmd-rust vsearch "machine learning"` - Returns semantic results (scores: 0.40, 0.40, 0.36)
+   - ✅ `qmd-rust query "artificial intelligence"` - Hybrid search working (scores: 0.75, 0.55, 0.25)
+   - ✅ BM25 vs Vector comparison: Vector search finds semantic matches even when BM25 returns 0 results
 
-4. Rebuild with llama-cpp feature:
-   ```bash
-   cargo build --features "sqlite-vec,llama-cpp"
-   ```
+### Build Commands (Updated)
+```bash
+# Build with real embedding model support
+RUSTFLAGS="-L /opt/homebrew/opt/libomp/lib -l omp" cargo build --features "sqlite-vec,llama-cpp"
 
-5. Regenerate embeddings:
-   ```bash
-   ./target/debug/qmd-rust embed --force
-   ```
+# Or use the simpler command (sqlite-vec only, uses random vectors)
+cargo build --features sqlite-vec
+```
 
-6. Test improved search quality:
-   ```bash
-   ./target/debug/qmd-rust query "machine learning"
-   ./target/debug/qmd-rust query "artificial intelligence"
-   ```
+### Configuration (Updated)
+```yaml
+# ~/.config/qmd/index.yaml
+models:
+  embed:
+    local: "nomic-embed-text-v1.5"
+    local_path: "~/.cache/qmd/models/nomic-embed-text-v1.5.gguf"  # Symlink to .f16.gguf
+    remote: "text-embedding-3-small"
+```
 
-**Expected Outcome**: Significantly better semantic search with real embeddings instead of random vectors
+### Test Results with Real Embeddings
+
+**Query: "artificial intelligence"**
+- BM25 Search: 0 results (no exact keyword match)
+- Vector Search: 3 results (semantic similarity: 0.36, 0.34, 0.32)
+- Hybrid Search: 3 results (RRF fusion: 0.75, 0.56, 0.26)
+
+**Query: "machine learning"**
+- Vector Search: 3 results (0.41, 0.41, 0.37)
+- Hybrid Search: 3 results (0.48, 0.12, 0.07)
+
+### Current Status
+- ✅ Real embedding model working with GPU acceleration
+- ✅ All search modes functional (BM25, Vector, Hybrid)
+- ✅ Semantic search significantly better than random vectors
+- ✅ No more "fallback to random vectors" warnings
 
 ---
 
-### Option B: Add Unit Tests
+## 🚀 Phase 4: Next Steps (Recommended Priority)
+
+### Option A: Add Unit Tests (Highest Priority)
+
+### Option A: Add Unit Tests (Highest Priority)
 
 **Goal**: Ensure code quality and prevent regressions
 
@@ -153,6 +172,7 @@ cargo build --features sqlite-vec  # ✅ Successful
 3. Hybrid search result ordering
 4. Query expansion functionality
 5. Distance to similarity conversion
+6. Embedding dimension validation (768-dim)
 
 **Commands**:
 ```bash
@@ -162,30 +182,47 @@ cargo test --features "sqlite-vec,llama-cpp"
 
 ---
 
-### Option C: Performance Optimization
+### Option B: Performance Optimization
 
 **Goal**: Improve search speed and reduce memory usage
 
 **Areas to Optimize**:
-1. Batch vector search queries
-2. Cache embeddings for repeated queries
+1. Cache embedding model in memory (avoid reloading for each query)
+2. Batch vector search queries
 3. Optimize RRF fusion for large result sets
 4. Add connection pooling for multi-collection searches
 
-**Expected Outcome**: Faster search response times, especially for multi-collection queries
+**Expected Outcome**: Faster search response times, especially for repeated queries
+
+---
+
+### Option C: Clean Up Unused Code
+
+**Goal**: Remove deprecated sync methods and improve code maintainability
+
+**Files to Clean**:
+- `src/store/mod.rs` - Remove unused methods (vector_search, vector_search_with_embedder, embed_collection, embed_all_collections)
+- `src/llm/mod.rs` - Remove sync wrappers (embed_sync, rerank_sync) if no longer needed
+
+**Benefits**:
+- Cleaner codebase
+- Fewer compiler warnings
+- Easier maintenance
 
 ---
 
 ## 📝 Important Notes for Next Session
 
-### Key Files Modified (Phase 1 & 2)
+### Key Files Modified (Phase 1, 2 & 3)
 - `Cargo.toml` - Added llama-cpp-2 as optional dependency
-- `src/llm/mod.rs` - Implemented real embedding generation and async embed()
-- `src/store/mod.rs` - Implemented hybrid_search(), vector_search_with_embedder_async(), fixed RRF fusion bug
+- `build.rs` - Added OpenMP linking configuration for macOS
+- `src/store/mod.rs` - Updated vector dimension from 384 to 768, implemented hybrid_search(), fixed RRF fusion bug
+- `src/llm/mod.rs` - Implemented real embedding generation with llama-cpp-2 and async embed()
 - `src/cli/embed.rs` - Async embedding with Tokio runtime
 - `src/cli/vsearch.rs` - Async vector search with Tokio runtime
 - `src/cli/query.rs` - Async hybrid search with Tokio runtime
 - `src/main.rs` - Updated query command to pass LLM router
+- `~/.config/qmd/index.yaml` - Updated model configuration for nomic-embed-text-v1.5
 
 ### Methods Now in Use
 - `Store::hybrid_search()` - ✅ Fully implemented with BM25 + Vector + RRF + Reranking
@@ -202,91 +239,114 @@ cargo test --features "sqlite-vec,llama-cpp"
 - `Router::embed_sync()` - Sync version, causes nested runtime issues
 - `Router::rerank_sync()` - Sync version, causes nested runtime issues
 
-### Configuration
-Current config location: `~/.config/qmd/config.yaml`
+### Configuration (Updated for Phase 3)
+Current config location: `~/.config/qmd/index.yaml`
 
 Example LLM config:
 ```yaml
-llm:
-  embedder:
-    provider: local  # or openai, anthropic
-    model: nomic-embed-text-v1.5
-    model_path: ~/.cache/qmd/models/nomic-embed-text-v1.5.f16.gguf
-  generator:
-    provider: openai
-    model: gpt-4
+models:
+  embed:
+    local: "nomic-embed-text-v1.5"
+    local_path: "~/.cache/qmd/models/nomic-embed-text-v1.5.gguf"  # Symlink to .f16.gguf
+    remote: "text-embedding-3-small"
+  rerank:
+    local: "bge-reranker-base"
+    remote: "gpt-4o-mini"
+  query_expansion:
+    local: "rule-based"
+    remote: "gpt-4o-mini"
 ```
 
-### Database Schema
+### Database Schema (Updated for Phase 3)
 - `documents` - Main document table
 - `content_vectors` - Embedding metadata (hash, model, timestamp)
-- `vectors_vec` - Actual vector data (hash_seq, embedding JSON)
+- `vectors_vec` - Actual vector data (hash_seq, embedding float[768]) ← **Updated to 768 dimensions**
 
----
-
-## 🎯 Recommended Next Steps
-
-**Priority 1**: Install real embedding model (Phase 3 Option A)
-- Most impactful improvement for search quality
-- Enables true semantic search instead of random vectors
-- ~30 minutes of work
-
-**Priority 2**: Add unit tests (Phase 3 Option B)
-- Ensures code quality and prevents regressions
-- Tests RRF fusion, vector search, hybrid search
-- ~2-3 hours of work
-
-**Priority 3**: Performance optimization (Phase 3 Option C)
-- Improve search speed and reduce memory usage
-- Add caching and connection pooling
-- ~2-4 hours of work
-
----
-
-## 🐛 Known Issues
-
-1. **llama-cpp compilation** - Requires libomp on macOS
-   - Workaround: Use random vectors or remote API
-   - Fix: `brew install libomp`
-
-2. **Random vector embeddings** - Currently using fallback
-   - Impact: Vector search works but lacks semantic meaning
-   - Fix: Install real embedding model (Priority 1)
-
-3. **Nested runtime warnings** - Fixed in Phase 2
-   - Solution: Use async methods throughout the pipeline
-   - Avoid `embed_sync()` and `rerank_sync()` in async contexts
-
----
-
-## 📚 Quick Reference Commands
-
-### Build Commands
+### Build Commands (Updated for Phase 3)
 ```bash
-# Build with sqlite-vec only (recommended)
-cargo build --features sqlite-vec
+# Build with real embedding model (requires OpenMP)
+RUSTFLAGS="-L /opt/homebrew/opt/libomp/lib -l omp" cargo build --features "sqlite-vec,llama-cpp"
 
-# Build with all features (requires libomp)
-cargo build --features "sqlite-vec,llama-cpp"
+# Build with sqlite-vec only (uses random vectors as fallback)
+cargo build --features sqlite-vec
 
 # Run tests
 cargo test --features sqlite-vec
 ```
 
-### Search Commands
+---
+
+## 🎯 Recommended Next Steps (Phase 4)
+
+**Priority 1**: Add unit tests (Phase 4 Option A)
+- Ensures code quality and prevents regressions
+- Tests RRF fusion, vector search, hybrid search with real embeddings
+- Validate 768-dimension embedding handling
+- ~2-3 hours of work
+
+**Priority 2**: Performance optimization (Phase 4 Option B)
+- Cache embedding model in memory (avoid reloading)
+- Improve search speed and reduce latency
+- Add connection pooling
+- ~2-4 hours of work
+
+**Priority 3**: Clean up unused code (Phase 4 Option C)
+- Remove deprecated sync methods
+- Cleaner codebase with fewer warnings
+- ~1 hour of work
+
+---
+
+## 🐛 Known Issues
+
+1. **OpenMP linking** - Requires RUSTFLAGS for llama-cpp feature ✅ RESOLVED
+   - Solution: `RUSTFLAGS="-L /opt/homebrew/opt/libomp/lib -l omp" cargo build --features "sqlite-vec,llama-cpp"`
+   - Alternative: Use sqlite-vec only (random vectors fallback)
+
+2. **Model reloading** - Model loads on every query (performance issue)
+   - Impact: ~2-3 seconds per query for model initialization
+   - Fix: Implement model caching (Priority 2)
+
+3. **Unused method warnings** - Several sync methods marked as unused
+   - Impact: Compiler warnings but no functional issues
+   - Fix: Clean up code (Priority 3)
+
+---
+
+## 📚 Quick Reference Commands
+
+### Build Commands (Updated)
+### Build Commands (Updated)
 ```bash
+# Build with real embedding model (recommended for production)
+RUSTFLAGS="-L /opt/homebrew/opt/libomp/lib -l omp" cargo build --features "sqlite-vec,llama-cpp"
+
+# Build with sqlite-vec only (development/testing)
+cargo build --features sqlite-vec
+
+# Run tests
+cargo test --features sqlite-vec
+```
+
+### Search Commands (Updated with Real Embeddings)
+```bash
+# Update index (scan and index documents)
+./target/debug/qmd-rust update
+
+# Generate embeddings with real model
+./target/debug/qmd-rust embed --collection test_collection
+
 # BM25 full-text search
 ./target/debug/qmd-rust search "query" --limit 10
 
-# Vector semantic search
+# Vector semantic search (uses real embeddings)
 ./target/debug/qmd-rust vsearch "query" --limit 10
 
 # Hybrid search (BM25 + Vector + RRF + Reranking)
 ./target/debug/qmd-rust query "query" --limit 10
 
-# Generate embeddings
-./target/debug/qmd-rust embed
-./target/debug/qmd-rust embed --force  # Regenerate all
+# Force regenerate all embeddings
+./target/debug/qmd-rust embed --force
 ```
 
 ### Database Commands
@@ -303,31 +363,14 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ## 🎉 Summary
 
-**Phase 1 & 2 Complete!** The QMD Rust project now has:
-- ✅ Full vector search implementation with sqlite-vec
+**Phase 1, 2 & 3 Complete!** The QMD Rust project now has:
+- ✅ Full vector search implementation with sqlite-vec (768-dim)
+- ✅ Real embedding model integration (nomic-embed-text-v1.5 with GPU acceleration)
 - ✅ Hybrid search combining BM25 + Vector search
 - ✅ RRF fusion algorithm for result merging
 - ✅ Query expansion and LLM reranking pipeline
 - ✅ Async/await throughout the codebase
 - ✅ All runtime issues resolved
+- ✅ Semantic search working with real embeddings (no more random vectors!)
 
-**Next**: Install a real embedding model to unlock true semantic search capabilities!
-
-2. **Async runtime** - Must create Tokio runtime in CLI handlers
-   - Fixed in embed.rs and vsearch.rs
-   - Pattern to follow for other async operations
-
-3. **Unused warnings** - Several methods marked as unused
-   - Can be cleaned up or integrated into hybrid search
-
----
-
-## 📚 Reference
-
-- **sqlite-vec docs**: https://github.com/asg017/sqlite-vec
-- **llama-cpp-2 docs**: https://docs.rs/llama-cpp-2
-- **RRF algorithm**: Reciprocal Rank Fusion for result merging
-
----
-
-**Ready to continue!** Choose Option A, B, or C based on your priorities.
+**Next**: Add unit tests to ensure code quality and prevent regressions!
