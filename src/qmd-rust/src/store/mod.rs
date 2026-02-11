@@ -45,6 +45,9 @@ pub struct Store {
 impl Store {
     /// Create a new Store instance
     pub fn new(config: &Config) -> Result<Self> {
+        // Initialize sqlite-vec extension if available
+        Self::init_sqlite_vec()?;
+
         let store = Self {
             config: config.clone(),
             connections: HashMap::new(),
@@ -56,6 +59,27 @@ impl Store {
         }
 
         Ok(store)
+    }
+
+    /// Initialize sqlite-vec extension
+    fn init_sqlite_vec() -> Result<()> {
+        #[cfg(feature = "sqlite-vec")]
+        {
+            use sqlite_vec::sqlite3_vec_init;
+            use std::os::raw::c_void;
+
+            unsafe {
+                rusqlite::ffi::sqlite3_auto_extension(
+                    Some(std::mem::transmute(sqlite3_vec_init as *const c_void)),
+                );
+            }
+            info!("sqlite-vec extension loaded");
+        }
+        #[cfg(not(feature = "sqlite-vec"))]
+        {
+            warn!("sqlite-vec feature not enabled");
+        }
+        Ok(())
     }
 
     /// Get or create database connection for a collection
@@ -80,6 +104,7 @@ impl Store {
     fn init_schema(conn: &Connection) -> Result<()> {
         info!("Initializing database schema");
 
+        // Create tables one by one with error handling
         conn.execute_batch(r#"
             -- Documents table
             CREATE TABLE IF NOT EXISTS documents (
@@ -88,24 +113,26 @@ impl Store {
                 path TEXT NOT NULL,
                 title TEXT NOT NULL,
                 hash TEXT NOT NULL UNIQUE,
+                doc TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 modified_at TEXT NOT NULL,
                 active INTEGER NOT NULL DEFAULT 1
             );
+        "#)?;
 
+        conn.execute_batch(r#"
             -- FTS5 virtual table for full-text search
             CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
                 filepath, title, body,
-                tokenize='porter unicode61',
-                content='documents',
-                content_rowid='id'
+                tokenize='porter unicode61'
             );
+        "#)?;
 
+        conn.execute_batch(r#"
             -- Triggers to keep FTS index synchronized
             CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
                 INSERT INTO documents_fts(rowid, filepath, title, body)
-                VALUES(new.id, new.collection || '/' || new.path, new.title,
-                       (SELECT doc FROM content WHERE hash = new.hash));
+                VALUES(new.id, new.collection || '/' || new.path, new.title, new.doc);
             END;
 
             CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
@@ -117,23 +144,19 @@ impl Store {
                 INSERT INTO documents_fts(documents_fts, rowid, filepath, title, body)
                 VALUES('delete', old.id, old.collection || '/' || old.path, old.title, NULL);
                 INSERT INTO documents_fts(rowid, filepath, title, body)
-                VALUES(new.id, new.collection || '/' || new.path, new.title,
-                       (SELECT doc FROM content WHERE hash = new.hash));
+                VALUES(new.id, new.collection || '/' || new.path, new.title, new.doc);
             END;
+        "#)?;
 
-            -- Content table (actual document content)
-            CREATE TABLE IF NOT EXISTS content (
-                hash TEXT PRIMARY KEY,
-                doc TEXT NOT NULL,
-                size INTEGER NOT NULL DEFAULT 0
-            );
-
+        conn.execute_batch(r#"
             -- Vector storage (sqlite-vec if available)
             CREATE VIRTUAL TABLE IF NOT EXISTS vectors_vec USING vec0(
                 hash_seq TEXT PRIMARY KEY,
                 embedding float[384] distance_metric=cosine
             );
+        "#)?;
 
+        conn.execute_batch(r#"
             -- Vector metadata
             CREATE TABLE IF NOT EXISTS content_vectors (
                 hash TEXT NOT NULL,
@@ -143,7 +166,9 @@ impl Store {
                 embedded_at TEXT NOT NULL,
                 PRIMARY KEY (hash, seq)
             );
+        "#)?;
 
+        conn.execute_batch(r#"
             -- Collections table
             CREATE TABLE IF NOT EXISTS collections (
                 name TEXT PRIMARY KEY,
@@ -151,7 +176,9 @@ impl Store {
                 pattern TEXT,
                 description TEXT
             );
+        "#)?;
 
+        conn.execute_batch(r#"
             -- Create indexes
             CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
             CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
@@ -183,12 +210,14 @@ impl Store {
             return Ok(results);
         };
 
+        let limit = options.limit;
+
         for collection in collections {
             if let Ok(conn) = self.get_connection(collection) {
-                let query = format!("{} NOT active:0", query);
+                let fts_query = query.to_string();
 
                 let mut stmt = conn.prepare(
-                    "SELECT rowid, bm25(documents_fts), title, path
+                    "SELECT rowid, bm25(documents_fts), title, filepath
                      FROM documents_fts
                      WHERE documents_fts MATCH ?
                      ORDER BY bm25(documents_fts)
@@ -196,15 +225,15 @@ impl Store {
                 )?;
 
                 let rows: Vec<(i32, f64, String, String)> = stmt
-                    .query_map([&query], |row| {
+                    .query_map((&fts_query, limit as i64), |row| {
                         Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
                     })?
                     .filter_map(|r| r.ok())
                     .collect();
 
-                for (rowid, score, title, path) in rows {
+                for (rowid, score, title, filepath) in rows {
                     results.push(SearchResult {
-                        path: format!("{}/{}", collection, path),
+                        path: filepath,
                         collection: collection.to_string(),
                         score: score as f32,
                         lines: 0, // TODO: Calculate line count
@@ -278,7 +307,7 @@ impl Store {
         _query_vector: &[f32],
         _limit: usize,
     ) -> Result<Vec<SearchResult>> {
-        let results = Vec::new();
+        let mut results = Vec::new();
 
         // Try sqlite-vec first
         #[cfg(feature = "sqlite-vec")]
@@ -309,7 +338,7 @@ impl Store {
         let mut results = Vec::new();
 
         // Prepare query vector as SQL array
-        let query_vec: Vec<Value> = query_vector.iter().map(|&v| Value::from(v)).collect();
+        let _query_vec: Vec<Value> = query_vector.iter().map(|&v| Value::from(v)).collect();
 
         let mut stmt = conn.prepare(
             "SELECT
@@ -337,7 +366,7 @@ impl Store {
             .filter_map(|r| r.ok())
             .collect();
 
-        for (rowid, distance, path, title, hash) in rows {
+        for (rowid, distance, path, title, _hash) in rows {
             results.push(SearchResult {
                 path,
                 collection: String::new(),
@@ -526,8 +555,117 @@ impl Store {
 
     /// Update index
     pub fn update_index(&self) -> Result<()> {
-        // TODO: Scan files and update index
+        use std::io::Read;
+
+        for collection in &self.config.collections {
+            info!("Updating collection: {}", collection.name);
+
+            // Expand the path
+            let base_path = shellexpand::tilde(&collection.path.to_string_lossy())
+                .parse::<std::path::PathBuf>()?;
+
+            // Get glob pattern
+            let pattern = collection.pattern.as_deref().unwrap_or("**/*");
+            let glob_path = base_path.join(pattern);
+            let glob_pattern = glob_path.to_string_lossy();
+
+            info!("Scanning files with pattern: {}", glob_pattern);
+
+            // Find matching files
+            let entries = glob::glob(&glob_pattern)?;
+
+            let mut file_count = 0;
+            let mut skip_count = 0;
+
+            for entry in entries {
+                match entry {
+                    Ok(path) => {
+                        if !path.is_file() {
+                            continue;
+                        }
+
+                        // Read file content
+                        let mut file = std::fs::File::open(&path)?;
+                        let mut content = String::new();
+                        file.read_to_string(&mut content)?;
+
+                        // Calculate hash of content
+                        let hash = Self::calculate_hash(&content);
+
+                        // Get relative path from base
+                        let rel_path = path.strip_prefix(&base_path)
+                            .unwrap_or(&path)
+                            .to_string_lossy()
+                            .into_owned();
+
+                        // Get file metadata
+                        let metadata = std::fs::metadata(&path)?;
+                        let modified: chrono::DateTime<chrono::Utc> = metadata.modified()?.into();
+                        let created: chrono::DateTime<chrono::Utc> = metadata.created()?.into();
+
+                        // Extract title from filename
+                        let title = path.file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned();
+
+                        // Insert or update document
+                        let conn = match self.get_connection(&collection.name) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                warn!("Failed to get connection for {}: {}", collection.name, e);
+                                continue;
+                            }
+                        };
+
+                        // Check if document exists and is modified
+                        let existing_hash: Option<String> = conn.query_row(
+                            "SELECT hash FROM documents WHERE path = ? AND collection = ?",
+                            [&rel_path, &collection.name],
+                            |row| row.get(0)
+                        ).ok();
+
+                        if existing_hash.as_ref() == Some(&hash) {
+                            // Document unchanged, skip
+                            skip_count += 1;
+                            continue;
+                        }
+
+                        // Upsert document (includes doc content directly now)
+                        let doc_ref: &str = &content;
+                        conn.execute(
+                            "INSERT INTO documents (collection, path, title, hash, doc, created_at, modified_at, active)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                             ON CONFLICT(hash) DO UPDATE SET
+                                path = excluded.path,
+                                title = excluded.title,
+                                doc = excluded.doc,
+                                modified_at = excluded.modified_at,
+                                active = 1",
+                            [&collection.name, &rel_path, &title, &hash, doc_ref,
+                             &created.to_rfc3339(), &modified.to_rfc3339()],
+                        )?;
+
+                        file_count += 1;
+                    }
+                    Err(e) => {
+                        warn!("Failed to access path: {:?}", e);
+                    }
+                }
+            }
+
+            info!("Updated {} files ({} unchanged)", file_count, skip_count);
+        }
+
         Ok(())
+    }
+
+    /// Calculate SHA256 hash of content
+    fn calculate_hash(content: &str) -> String {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(content.as_bytes());
+        format!("{:x}", hasher.finalize())
     }
 
     /// Get index statistics

@@ -56,9 +56,14 @@
 
 **启用方式**: 构建时添加 `--features sqlite-vec`
 
+**已测试** (2026-02-11):
+- ✅ sqlite-vec 扩展加载成功
+- ✅ update_index 文件扫描和索引功能正常工作
+- ✅ BM25 全文搜索返回正确结果
+
 **待完成**:
-- 启用 sqlite-vec feature 进行实际测试
 - 集成真正的 llama.cpp embedding 模型
+- 实现向量搜索功能 (vector_search)
 
 ### 2. 添加 LanceDB 后端 (优先级: 中)
 
@@ -254,4 +259,32 @@ cargo build --release
 cd src/qmd-rust
 cargo build --release
 ./target/release/qmd-rust --help
+```
+
+---
+
+## 2026-02-11 代码变更（第三阶段）
+
+### 向量搜索完善和测试
+
+| 文件 | 变更 |
+|------|------|
+| `Cargo.toml` | 添加 `sqlite-vec = "0.1"` 和 `sha2 = "0.10"` 依赖 |
+| `src/store/mod.rs` | 修复 sqlite-vec 编译错误（mut results）；添加 `init_sqlite_vec` 扩展加载；简化 schema（FTS5 content 选项）；实现 `update_index` 文件扫描和索引更新 |
+| `src/config/mod.rs` | 修复配置路径展开问题（`shellexpand::tilde`） |
+| `src/cli/search.rs` | 修复 SQL 查询（移除 `NOT active:0`；修复字段名 `filepath`） |
+
+### 验证命令
+
+```bash
+# 构建（启用 sqlite-vec feature）
+cd src/qmd-rust
+cargo build --release --features sqlite-vec
+
+# 更新索引
+./target/release/qmd-rust update
+
+# 测试搜索
+./target/release/qmd-rust search "installation"
+./target/release/qmd-rust search "rust"
 ```

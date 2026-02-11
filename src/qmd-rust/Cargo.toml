@@ -16,6 +16,7 @@ thiserror = "1.0"
 
 # Database
 rusqlite = { version = "0.30", features = ["bundled"] }
+sqlite-vec = "0.1"
 # lancedb = "0.16"  # TODO: Re-enable when dependency issues are resolved
 
 # Configuration
@@ -41,6 +42,7 @@ env_logger = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 indicatif = "0.17"
 dialoguer = "0.11"
+sha2 = "0.10"
 
 [dev-dependencies]
 assert_cmd = "2.0"

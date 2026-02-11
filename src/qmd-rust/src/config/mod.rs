@@ -118,7 +118,15 @@ impl Config {
             info!("Loading configuration from: {:?}", config_path);
             let content = fs::read_to_string(&config_path)?;
             // serde's #[serde(default)] handles all defaults during deserialization
-            let config: Config = serde_yaml::from_str(&content)?;
+            let mut config: Config = serde_yaml::from_str(&content)?;
+
+            // Expand tilde paths in configuration
+            config.cache_path = expand_path(&config.cache_path.to_string_lossy());
+
+            for collection in &mut config.collections {
+                collection.path = expand_path(&collection.path.to_string_lossy());
+            }
+
             Ok(config)
         } else {
             info!("Configuration not found, using defaults");
