@@ -1,7 +1,8 @@
 # Next Session Guide - QMD Development
 
 **Last Updated**: 2026-02-12
-**Current Phase**: Phase 7 Complete ✅
+**Current Phase**: Phase 8 Complete ✅
+**Next Phase**: Phase 9 — LLM Reranker 真实集成
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
 
@@ -395,7 +396,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ## 🎉 Summary
 
-**Phase 1, 2, 3, 4A, 4B, 4C, 4D, 5, 6 & 7 Complete!** The QMD Rust project now has:
+**Phase 1, 2, 3, 4A, 4B, 4C, 4D, 5, 6, 7 & 8 Complete!** The QMD Rust project now has:
 - ✅ Full vector search implementation with sqlite-vec (768-dim)
 - ✅ Real embedding model integration (nomic-embed-text-v1.5 with GPU acceleration)
 - ✅ Hybrid search combining BM25 + Vector search
@@ -412,6 +413,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 - ✅ **Document chunking** - intelligent boundary-aware splitting (paragraph > sentence > word), 800 tokens/chunk with 15% overlap
 - ✅ **Chunk-level embeddings** - each chunk gets independent vector, aggregated back to document level for search results
 - ✅ **MCP Server** - rmcp v0.15.0 SDK, 5 tools (search/vsearch/query/get/status), stdio transport, async/sync separation pattern
+- ✅ **Agent 智能路由** - QueryIntent 意图分类 (Keyword/Semantic/Complex), classify_intent 规则引擎, 强制路由 (/bm25/vector/hybrid), 14 个单元测试
 
 ---
 
@@ -558,12 +560,12 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 | 6 | 文档分块系统 | 🔴 高 | ✅ 完成 |
 | 7 | MCP 模块重新启用 | 🔴 高 | ✅ 完成 |
 | 8 | Agent 智能路由 | 🟡 中 | ✅ 完成 |
-| 9 | LLM Reranker 真实集成 | 🟡 中 | 待开始 |
+| 9 | LLM Reranker 真实集成 | 🟡 中 | ⬅️ 下一步 |
 | 10 | Schema 完善与缓存 | 🟢 低 | 待开始 |
 | 11 | LanceDB 后端 | 🟢 低 | 待开始 |
 | 12 | Go / Python 实现 | 🟢 低 | 待开始 |
 
-**建议执行顺序**: Phase 8 → 9 → 10 → 11 → 12
+**建议执行顺序**: Phase 9 → 10 → 11 → 12
 
 ---
 
