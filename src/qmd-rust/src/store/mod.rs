@@ -1,3 +1,5 @@
+pub mod chunker;
+
 use crate::config::{Config, BM25Backend};
 use crate::llm::Router;
 use anyhow::{Context, Result};
@@ -33,6 +35,7 @@ pub struct IndexStats {
     pub document_count: usize,
     pub indexed_count: usize,
     pub pending_count: usize,
+    pub chunk_count: usize,
     pub collection_stats: HashMap<String, usize>,
 }
 
@@ -324,6 +327,9 @@ impl Store {
     }
 
     /// SQLite vector search using sqlite-vec
+    ///
+    /// Aggregates chunks back to document level by taking the best (minimum distance)
+    /// chunk per document via GROUP BY.
     #[cfg(feature = "sqlite-vec")]
     fn vector_search_sqlite_vec(
         &self,
@@ -336,19 +342,21 @@ impl Store {
         // Convert query vector to JSON array format for sqlite-vec
         let query_vec_json = serde_json::to_string(query_vector)?;
 
-        // Use sqlite-vec's vec_distance_cosine function for similarity search
-        // Note: We search content_vectors to get hash/seq, then join to documents
+        // Use sqlite-vec's vec_distance_cosine function for similarity search.
+        // GROUP BY cv.hash aggregates multiple chunks back to one result per document,
+        // taking the best (minimum distance) chunk score.
         let mut stmt = conn.prepare(
             "SELECT
                 cv.hash,
                 d.path,
                 d.title,
                 d.collection,
-                vec_distance_cosine(v.embedding, ?) as distance
+                MIN(vec_distance_cosine(v.embedding, ?)) as distance
              FROM content_vectors cv
              JOIN vectors_vec v ON v.hash_seq = cv.hash || '_' || cv.seq
              JOIN documents d ON d.hash = cv.hash
              WHERE d.active = 1
+             GROUP BY cv.hash
              ORDER BY distance ASC
              LIMIT ?"
         )?;
@@ -678,7 +686,14 @@ impl Store {
                     |row| row.get(0)
                 ).unwrap_or(0);
 
+                let chunks: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM content_vectors",
+                    [],
+                    |row| row.get(0)
+                ).unwrap_or(0);
+
                 stats.document_count += count as usize;
+                stats.chunk_count += chunks as usize;
                 stats.collection_stats.insert(collection.name.clone(), count as usize);
             }
         }

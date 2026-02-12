@@ -1,7 +1,7 @@
 # Next Session Guide - QMD Development
 
 **Last Updated**: 2026-02-12
-**Current Phase**: Phase 5 Complete ✅
+**Current Phase**: Phase 6 Complete ✅
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
 
@@ -395,7 +395,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ## 🎉 Summary
 
-**Phase 1, 2, 3, 4A, 4B, 4C & 4D Complete!** The QMD Rust project now has:
+**Phase 1, 2, 3, 4A, 4B, 4C, 4D, 5 & 6 Complete!** The QMD Rust project now has:
 - ✅ Full vector search implementation with sqlite-vec (768-dim)
 - ✅ Real embedding model integration (nomic-embed-text-v1.5 with GPU acceleration)
 - ✅ Hybrid search combining BM25 + Vector search
@@ -404,11 +404,13 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 - ✅ Async/await throughout the codebase
 - ✅ All runtime issues resolved
 - ✅ Semantic search working with real embeddings (no more random vectors!)
-- ✅ **35 unit tests** covering RRF fusion, BM25 search, query expansion, embedding normalization, schema init
-- ✅ **41 integration tests** covering store, formatter, config, hybrid search, CLI
+- ✅ **42 unit tests** covering RRF fusion, BM25 search, query expansion, embedding normalization, schema init, chunker
+- ✅ **50 integration tests** covering store, formatter, config, hybrid search, CLI, chunking
 - ✅ **vec0 graceful degradation** — sqlite-vec table creation no longer crashes when extension unavailable
 - ✅ **Model caching** - embedding model loads once, reused across queries (Mutex<Option<CachedLlamaModel>>)
 - ✅ **Code cleanup** - removed 6 deprecated sync methods, cleaner async-only codebase
+- ✅ **Document chunking** - intelligent boundary-aware splitting (paragraph > sentence > word), 800 tokens/chunk with 15% overlap
+- ✅ **Chunk-level embeddings** - each chunk gets independent vector, aggregated back to document level for search results
 
 ---
 
@@ -431,24 +433,27 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ---
 
-### Phase 6: 文档分块系统（高优先级）
+### Phase 6: 文档分块系统（高优先级）✅ COMPLETED
 
-**目标**: 实现 token 级文档分块，提升向量搜索质量
-
-**当前问题**:
-- 当前整文档存储为单个 embedding，大文档语义稀释严重
-- 原版 QMD 使用 800 tokens/块, 15% overlap (120 tokens)
-
-**需要实现**:
-1. Token 分块器 — 按 token 数切分文档（可用字符近似: ~4 chars/token）
-2. 分块存储 — `content_vectors` 表的 `seq` 和 `pos` 字段已预留
-3. 分块 embedding — embed 命令对每个 chunk 生成独立向量
-4. 向量搜索适配 — 搜索结果从 chunk 映射回文档
-5. 分块去重 — 同一文档多个 chunk 命中时合并得分
-
-**涉及文件**:
-- `src/store/mod.rs` — 新增 chunking 逻辑，修改 embed/search 流程
-- `src/cli/embed.rs` — 适配分块 embedding
+**完成内容**:
+1. `src/store/chunker.rs` — 智能分块器，段落>句子>词边界优先分割
+   - DEFAULT_CHUNK_SIZE=3200 chars (~800 tokens at 4 chars/token)
+   - DEFAULT_OVERLAP=480 chars (~15%, ~120 tokens)
+   - 短文档阈值: chunk_size * 1.2，低于此值返回单 chunk
+   - find_split_point 向后搜索窗口: 640 chars (20% of chunk_size)
+2. `src/cli/embed.rs` — 按 chunk 批量生成 embedding
+   - 文档先 chunk_document() 分块，再按 batch_size=10 批量 embed
+   - 存储 hash_seq 格式键 (hash_0, hash_1, ...)
+   - force 模式先删除旧 chunks 再重新生成
+3. `src/cli/vsearch.rs` — GROUP BY cv.hash 聚合 chunks 回文档级
+   - MIN(vec_distance_cosine) 取最佳 chunk 距离
+   - distance → similarity 转换: (1.0 - distance).max(0.0)
+4. `src/store/mod.rs` — pub mod chunker 声明，IndexStats 增加 chunk_count 字段
+   - vector_search_sqlite_vec 同步更新聚合逻辑
+5. 新增 11 个测试（7 chunker 单元 + 4 store 集成）
+   - embed_generates_chunks, short_document_single_chunk
+   - vector_search_aggregates_chunks, get_stats_includes_chunk_count
+6. 测试总数：92（42 单元 + 50 集成），全部通过
 
 ---
 
@@ -552,7 +557,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 | Phase | 内容 | 优先级 | 状态 |
 |-------|------|--------|------|
 | 5 | Collection 配置持久化 | 🔴 高 | ✅ 完成 |
-| 6 | 文档分块系统 | 🔴 高 | 待开始 |
+| 6 | 文档分块系统 | 🔴 高 | ✅ 完成 |
 | 7 | MCP 模块重新启用 | 🔴 高 | 待开始 |
 | 8 | Agent 智能路由 | 🟡 中 | 待开始 |
 | 9 | LLM Reranker 真实集成 | 🟡 中 | 待开始 |

@@ -1,5 +1,6 @@
-use crate::cli::{EmbedArgs};
+use crate::cli::EmbedArgs;
 use crate::store::Store;
+use crate::store::chunker::{chunk_document, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP};
 use crate::llm::Router;
 use anyhow::Result;
 
@@ -66,13 +67,34 @@ async fn embed_collection_async(
 
     info!("Found {} documents to embed", docs.len());
 
-    // Process documents in batches
+    // Chunk all documents and build a flat list of (hash, chunk) pairs
+    let mut all_chunks: Vec<(String, crate::store::chunker::Chunk)> = Vec::new();
+
+    for (_doc_id, hash, doc) in &docs {
+        let chunks = chunk_document(doc, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+
+        // If force re-embed, delete old chunks for this hash
+        if force {
+            conn.execute("DELETE FROM content_vectors WHERE hash = ?", [hash])?;
+            // Delete all vector entries for this hash (any seq)
+            let like_pattern = format!("{}_%", hash);
+            conn.execute("DELETE FROM vectors_vec WHERE hash_seq LIKE ?", [&like_pattern])?;
+        }
+
+        for chunk in chunks {
+            all_chunks.push((hash.clone(), chunk));
+        }
+    }
+
+    info!("Total chunks to embed: {}", all_chunks.len());
+
+    // Process chunks in batches
     let batch_size = 10;
-    for (batch_idx, chunk) in docs.chunks(batch_size).enumerate() {
-        info!("Processing batch {}/{}", batch_idx + 1, (docs.len() + batch_size - 1) / batch_size);
+    for (batch_idx, batch) in all_chunks.chunks(batch_size).enumerate() {
+        info!("Processing batch {}/{}", batch_idx + 1, (all_chunks.len() + batch_size - 1) / batch_size);
 
         // Prepare texts for embedding
-        let texts: Vec<&str> = chunk.iter().map(|(_, _, doc)| doc.as_str()).collect();
+        let texts: Vec<&str> = batch.iter().map(|(_, chunk)| chunk.text.as_str()).collect();
 
         // Generate embeddings
         let embedding_result = llm.embed(&texts).await?;
@@ -80,27 +102,27 @@ async fn embed_collection_async(
         info!("Generated {} embeddings with model: {}",
               embedding_result.embeddings.len(), embedding_result.model);
 
-        // Store embeddings
-        for (i, (doc_id, hash, _)) in chunk.iter().enumerate() {
+        // Store embeddings per chunk
+        for (i, (hash, chunk)) in batch.iter().enumerate() {
             let embedding = &embedding_result.embeddings[i];
             let embedding_json = serde_json::to_string(embedding)?;
 
             // Store in content_vectors metadata table
             conn.execute(
                 "INSERT OR REPLACE INTO content_vectors (hash, seq, pos, model, embedded_at)
-                 VALUES (?, 0, 0, ?, datetime('now'))",
-                [hash, &embedding_result.model],
+                 VALUES (?, ?, ?, ?, datetime('now'))",
+                rusqlite::params![hash, chunk.seq as i64, chunk.pos as i64, &embedding_result.model],
             )?;
 
             // Store in vectors_vec table
-            let hash_seq = format!("{}_{}", hash, 0);
+            let hash_seq = format!("{}_{}", hash, chunk.seq);
             conn.execute(
                 "INSERT OR REPLACE INTO vectors_vec (hash_seq, embedding)
                  VALUES (?, ?)",
                 [&hash_seq, &embedding_json],
             )?;
 
-            info!("Stored embedding for document {} (hash: {})", doc_id, hash);
+            info!("Stored embedding for hash: {} chunk seq: {}", hash, chunk.seq);
         }
     }
 

@@ -85,18 +85,20 @@ fn vector_search_in_db(
     // Convert query vector to JSON array format for sqlite-vec
     let query_vec_json = serde_json::to_string(query_vector)?;
 
-    // Use sqlite-vec's vec_distance_cosine function for similarity search
+    // GROUP BY cv.hash aggregates multiple chunks back to one result per document,
+    // taking the best (minimum distance) chunk score.
     let mut stmt = conn.prepare(
         "SELECT
             cv.hash,
             d.path,
             d.title,
             d.collection,
-            vec_distance_cosine(v.embedding, ?) as distance
+            MIN(vec_distance_cosine(v.embedding, ?)) as distance
          FROM content_vectors cv
          JOIN vectors_vec v ON v.hash_seq = cv.hash || '_' || cv.seq
          JOIN documents d ON d.hash = cv.hash
          WHERE d.active = 1
+         GROUP BY cv.hash
          ORDER BY distance ASC
          LIMIT ?"
     )?;

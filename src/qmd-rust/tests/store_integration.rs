@@ -235,3 +235,209 @@ fn test_get_stats_multiple_collections() {
     assert_eq!(*stats.collection_stats.get("alpha").unwrap(), 2);
     assert_eq!(*stats.collection_stats.get("beta").unwrap(), 1);
 }
+
+// ==================== Chunking Integration Tests ====================
+
+#[test]
+fn test_embed_generates_chunks() {
+    use qmd_rust::store::chunker::{chunk_document, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP};
+
+    let tmp = tempdir().unwrap();
+    let content_dir = tmp.path().join("content");
+    fs::create_dir_all(&content_dir).unwrap();
+
+    let db_path = tmp.path().join("docs").join("index.db");
+    let conn = init_test_db(&db_path);
+
+    // Create a large document that will produce multiple chunks
+    let paragraph = "This is a detailed paragraph about Rust programming language and its memory safety features. ";
+    let large_doc = paragraph.repeat(100); // ~9400 chars, should produce multiple chunks
+    assert!(large_doc.len() > DEFAULT_CHUNK_SIZE, "Document must be larger than chunk_size");
+
+    insert_test_doc(&conn, "docs", "large.md", "Large Document", &large_doc, "hash_large");
+
+    // Chunk the document
+    let chunks = chunk_document(&large_doc, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+    assert!(chunks.len() >= 2, "Large document should produce at least 2 chunks, got {}", chunks.len());
+
+    // Simulate storing chunk metadata (as embed.rs would do)
+    for chunk in &chunks {
+        conn.execute(
+            "INSERT OR REPLACE INTO content_vectors (hash, seq, pos, model, embedded_at)
+             VALUES (?, ?, ?, ?, datetime('now'))",
+            rusqlite::params!["hash_large", chunk.seq as i64, chunk.pos as i64, "test-model"],
+        ).unwrap();
+    }
+
+    // Verify multiple content_vectors rows were created
+    let chunk_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM content_vectors WHERE hash = 'hash_large'",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+
+    assert_eq!(chunk_count as usize, chunks.len(),
+        "content_vectors should have {} rows, got {}", chunks.len(), chunk_count);
+
+    // Verify seq values are sequential
+    let mut stmt = conn.prepare(
+        "SELECT seq, pos FROM content_vectors WHERE hash = 'hash_large' ORDER BY seq"
+    ).unwrap();
+    let rows: Vec<(i64, i64)> = stmt.query_map([], |row| {
+        Ok((row.get(0)?, row.get(1)?))
+    }).unwrap().filter_map(|r| r.ok()).collect();
+
+    for (i, (seq, pos)) in rows.iter().enumerate() {
+        assert_eq!(*seq as usize, i, "seq should be sequential");
+        assert!(*pos >= 0, "pos should be non-negative");
+    }
+
+    // First chunk should start at pos=0
+    assert_eq!(rows[0].1, 0, "First chunk should start at position 0");
+}
+
+#[test]
+fn test_short_document_single_chunk() {
+    use qmd_rust::store::chunker::{chunk_document, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP};
+
+    let short_doc = "A short document about Rust.";
+    let chunks = chunk_document(short_doc, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+
+    assert_eq!(chunks.len(), 1, "Short document should produce exactly 1 chunk");
+    assert_eq!(chunks[0].seq, 0);
+    assert_eq!(chunks[0].pos, 0);
+    assert_eq!(chunks[0].text, short_doc);
+}
+
+#[cfg(feature = "sqlite-vec")]
+#[test]
+fn test_vector_search_aggregates_chunks() {
+    let tmp = tempdir().unwrap();
+    let content_dir = tmp.path().join("content");
+    fs::create_dir_all(&content_dir).unwrap();
+
+    let db_path = tmp.path().join("docs").join("index.db");
+    let conn = init_test_db(&db_path);
+
+    // Insert a document
+    insert_test_doc(&conn, "docs", "multi_chunk.md", "Multi Chunk Doc",
+        "A document with multiple chunks for testing aggregation", "hash_mc");
+
+    // Insert 3 chunks for the same document with fake embeddings
+    let dim = 768;
+    for seq in 0..3 {
+        conn.execute(
+            "INSERT INTO content_vectors (hash, seq, pos, model, embedded_at)
+             VALUES (?, ?, ?, ?, datetime('now'))",
+            rusqlite::params!["hash_mc", seq, seq * 1000, "test-model"],
+        ).unwrap();
+
+        // Create a simple embedding (slightly different per chunk)
+        let mut embedding = vec![0.0f32; dim];
+        embedding[0] = 1.0;
+        embedding[seq as usize + 1] = 0.1;
+        let embedding_json = serde_json::to_string(&embedding).unwrap();
+
+        let hash_seq = format!("hash_mc_{}", seq);
+        conn.execute(
+            "INSERT INTO vectors_vec (hash_seq, embedding) VALUES (?, ?)",
+            rusqlite::params![hash_seq, embedding_json],
+        ).unwrap();
+    }
+
+    // Insert a second document with 1 chunk
+    insert_test_doc(&conn, "docs", "single_chunk.md", "Single Chunk Doc",
+        "A single chunk document", "hash_sc");
+
+    conn.execute(
+        "INSERT INTO content_vectors (hash, seq, pos, model, embedded_at)
+         VALUES (?, 0, 0, ?, datetime('now'))",
+        rusqlite::params!["hash_sc", "test-model"],
+    ).unwrap();
+
+    let mut embedding2 = vec![0.0f32; dim];
+    embedding2[0] = 0.5;
+    embedding2[1] = 0.5;
+    let embedding2_json = serde_json::to_string(&embedding2).unwrap();
+    conn.execute(
+        "INSERT INTO vectors_vec (hash_seq, embedding) VALUES (?, ?)",
+        rusqlite::params!["hash_sc_0", embedding2_json],
+    ).unwrap();
+
+    drop(conn);
+
+    // Now search — should get 2 results (one per document), not 4
+    let config = create_test_config(tmp.path(), "docs", &content_dir);
+    let store = Store::new(&config).unwrap();
+
+    let conn = store.get_connection("docs").unwrap();
+
+    // Query with an embedding similar to our test data
+    let mut query_vec = vec![0.0f32; dim];
+    query_vec[0] = 1.0;
+    let query_json = serde_json::to_string(&query_vec).unwrap();
+
+    // Run the aggregated query directly
+    let mut stmt = conn.prepare(
+        "SELECT
+            cv.hash,
+            d.path,
+            d.title,
+            d.collection,
+            MIN(vec_distance_cosine(v.embedding, ?)) as distance
+         FROM content_vectors cv
+         JOIN vectors_vec v ON v.hash_seq = cv.hash || '_' || cv.seq
+         JOIN documents d ON d.hash = cv.hash
+         WHERE d.active = 1
+         GROUP BY cv.hash
+         ORDER BY distance ASC
+         LIMIT 10"
+    ).unwrap();
+
+    let results: Vec<(String, String, String, String, f64)> = stmt
+        .query_map(rusqlite::params![query_json], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+        }).unwrap()
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Should get exactly 2 results (one per document, not one per chunk)
+    assert_eq!(results.len(), 2,
+        "Should get 1 result per document, not per chunk. Got {} results", results.len());
+
+    // Verify unique hashes
+    let hashes: Vec<&str> = results.iter().map(|r| r.0.as_str()).collect();
+    assert!(hashes.contains(&"hash_mc"), "Should contain multi-chunk document");
+    assert!(hashes.contains(&"hash_sc"), "Should contain single-chunk document");
+}
+
+#[test]
+fn test_get_stats_includes_chunk_count() {
+    let tmp = tempdir().unwrap();
+    let content_dir = tmp.path().join("content");
+    fs::create_dir_all(&content_dir).unwrap();
+
+    let config = create_test_config(tmp.path(), "docs", &content_dir);
+
+    let db_path = tmp.path().join("docs").join("index.db");
+    let conn = init_test_db(&db_path);
+
+    // Insert a document
+    insert_test_doc(&conn, "docs", "doc.md", "Doc", "Content", "hash1");
+
+    // Insert 3 chunks for it
+    for seq in 0..3 {
+        conn.execute(
+            "INSERT INTO content_vectors (hash, seq, pos, model, embedded_at)
+             VALUES (?, ?, ?, ?, datetime('now'))",
+            rusqlite::params!["hash1", seq, seq * 1000, "test-model"],
+        ).unwrap();
+    }
+    drop(conn);
+
+    let store = Store::new(&config).unwrap();
+    let stats = store.get_stats().unwrap();
+
+    assert_eq!(stats.document_count, 1);
+    assert_eq!(stats.chunk_count, 3, "Should report 3 chunks");
+}
