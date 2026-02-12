@@ -146,7 +146,11 @@ impl Router {
 
     /// Rerank documents
     pub async fn rerank(&self, query: &str, docs: &[crate::store::SearchResult]) -> Result<Vec<f32>> {
-        let doc_texts: Vec<&str> = docs.iter().map(|d| d.title.as_str()).collect();
+        // Build richer document text for reranking: title + filepath for context
+        let doc_strings: Vec<String> = docs.iter().map(|d| {
+            format!("{}\n{}", d.title, d.path)
+        }).collect();
+        let doc_texts: Vec<&str> = doc_strings.iter().map(|s| s.as_str()).collect();
 
         // Try local first
         if let Some(ref local) = self.local_reranker {
@@ -429,6 +433,8 @@ impl RemoteEmbedder {
 pub struct LocalReranker {
     model_path: PathBuf,
     model_name: String,
+    #[cfg(feature = "llama-cpp")]
+    cached_model: Mutex<Option<CachedLlamaModel>>,
 }
 
 impl LocalReranker {
@@ -436,17 +442,123 @@ impl LocalReranker {
         let cache_path = shellexpand::tilde("~/.cache/qmd/models").parse::<PathBuf>()?;
         let model_path = cache_path.join(format!("{}.gguf", model_name));
 
+        if !model_path.exists() {
+            log::warn!("Reranker model not found: {}. Reranking will use fallback.", model_path.display());
+        }
+
         Ok(Self {
             model_path,
             model_name: model_name.to_string(),
+            #[cfg(feature = "llama-cpp")]
+            cached_model: Mutex::new(None),
         })
     }
 
-    pub async fn rerank(&self, _query: &str, docs: &[&str]) -> Result<Vec<f32>> {
-        log::info!("Local reranking with model: {}", self.model_name);
+    pub fn model_name(&self) -> String {
+        self.model_name.clone()
+    }
 
-        // Placeholder: return random scores
-        Ok(docs.iter().map(|_| rand::random::<f32>()).collect())
+    pub async fn rerank(&self, query: &str, docs: &[&str]) -> Result<Vec<f32>> {
+        log::info!("Local reranking with model: {} ({} docs)", self.model_name, docs.len());
+
+        if !self.model_path.exists() {
+            log::warn!("Reranker model not found, using random scores as fallback");
+            return Ok(docs.iter().map(|_| rand::random::<f32>()).collect());
+        }
+
+        #[cfg(feature = "llama-cpp")]
+        {
+            self.rerank_with_llama_cpp(query, docs).await
+        }
+
+        #[cfg(not(feature = "llama-cpp"))]
+        {
+            let _ = query;
+            log::warn!("llama-cpp feature not enabled, using random scores as fallback");
+            Ok(docs.iter().map(|_| rand::random::<f32>()).collect())
+        }
+    }
+
+    #[cfg(feature = "llama-cpp")]
+    fn ensure_model_loaded(&self) -> Result<()> {
+        use llama_cpp_2::llama_backend::LlamaBackend;
+        use llama_cpp_2::model::LlamaModel;
+        use llama_cpp_2::model::params::LlamaModelParams;
+
+        let mut cache = self.cached_model.lock()
+            .map_err(|e| anyhow::anyhow!("Failed to acquire reranker model lock: {}", e))?;
+
+        if cache.is_some() {
+            log::info!("Using cached reranker model");
+            return Ok(());
+        }
+
+        log::info!("Loading reranker model for the first time...");
+
+        let backend = LlamaBackend::init()
+            .map_err(|e| anyhow::anyhow!("Failed to initialize llama backend: {:?}", e))?;
+
+        let model_params = LlamaModelParams::default()
+            .with_n_gpu_layers(1000);
+
+        let model = LlamaModel::load_from_file(&backend, &self.model_path, &model_params)
+            .map_err(|e| anyhow::anyhow!("Failed to load reranker model: {:?}", e))?;
+
+        log::info!("Reranker model loaded and cached: {}", self.model_name);
+
+        *cache = Some(CachedLlamaModel { backend, model });
+        Ok(())
+    }
+
+    #[cfg(feature = "llama-cpp")]
+    async fn rerank_with_llama_cpp(&self, query: &str, docs: &[&str]) -> Result<Vec<f32>> {
+        use llama_cpp_2::model::AddBos;
+        use llama_cpp_2::context::params::LlamaContextParams;
+        use llama_cpp_2::context::params::LlamaPoolingType;
+        use llama_cpp_2::llama_batch::LlamaBatch;
+
+        self.ensure_model_loaded()?;
+
+        let cache = self.cached_model.lock()
+            .map_err(|e| anyhow::anyhow!("Failed to acquire reranker model lock: {}", e))?;
+        let cached = cache.as_ref().unwrap();
+
+        let ctx_params = LlamaContextParams::default()
+            .with_embeddings(true)
+            .with_pooling_type(LlamaPoolingType::Rank)
+            .with_n_threads_batch(8);
+
+        let mut ctx = cached.model.new_context(&cached.backend, ctx_params)
+            .map_err(|e| anyhow::anyhow!("Failed to create reranker context: {:?}", e))?;
+
+        let mut scores = Vec::with_capacity(docs.len());
+
+        for doc in docs {
+            // BGE-reranker prompt format: "{query}</s><s>{document}"
+            // AddBos::Always prepends <s>, so we format as: query + </s><s> + doc
+            let prompt = format!("{}</s><s>{}", query, doc);
+
+            let tokens = cached.model.str_to_token(&prompt, AddBos::Always)
+                .map_err(|e| anyhow::anyhow!("Failed to tokenize reranker input: {:?}", e))?;
+
+            let mut batch = LlamaBatch::new(ctx.n_ctx() as usize, 1);
+            batch.add_sequence(&tokens, 0, false)
+                .map_err(|e| anyhow::anyhow!("Failed to add sequence to batch: {:?}", e))?;
+
+            ctx.clear_kv_cache();
+            ctx.decode(&mut batch)
+                .map_err(|e| anyhow::anyhow!("Failed to decode reranker batch: {:?}", e))?;
+
+            let embeddings = ctx.embeddings_seq_ith(0)
+                .map_err(|e| anyhow::anyhow!("Failed to get reranker score: {:?}", e))?;
+
+            // Rank pooling returns a scalar score as the first element
+            let score = embeddings[0];
+            scores.push(score);
+        }
+
+        log::info!("Reranked {} documents, scores: {:?}", scores.len(), scores);
+        Ok(scores)
     }
 }
 
@@ -780,5 +892,45 @@ mod tests {
     fn test_llm_provider_display() {
         assert_eq!(format!("{}", LLMProvider::Local), "local");
         assert_eq!(format!("{}", LLMProvider::Remote), "remote");
+    }
+
+    // ==================== LocalReranker Tests ====================
+
+    #[test]
+    fn test_local_reranker_new() {
+        let reranker = LocalReranker::new("bge-reranker-v2-m3-Q8_0").unwrap();
+        assert_eq!(reranker.model_name(), "bge-reranker-v2-m3-Q8_0");
+        assert!(reranker.model_path.ends_with("bge-reranker-v2-m3-Q8_0.gguf"));
+    }
+
+    #[tokio::test]
+    async fn test_local_reranker_fallback_no_model() {
+        let reranker = LocalReranker::new("nonexistent-model-xyz").unwrap();
+        let docs = vec!["doc one", "doc two", "doc three"];
+        let scores = reranker.rerank("test query", &docs).await.unwrap();
+
+        assert_eq!(scores.len(), 3, "Should return one score per document");
+        for score in &scores {
+            assert!(*score >= 0.0 && *score <= 1.0, "Fallback scores should be in [0, 1]");
+        }
+    }
+
+    #[test]
+    fn test_router_has_reranker_with_config() {
+        let config = crate::config::Config {
+            models: crate::config::ModelsConfig {
+                embed: None,
+                rerank: Some(crate::config::LLMModelConfig {
+                    local: Some("bge-reranker-v2-m3-Q8_0".to_string()),
+                    remote: None,
+                }),
+                query_expansion: None,
+            },
+            ..crate::config::Config::default()
+        };
+
+        let router = Router::new(&config).unwrap();
+        assert!(router.has_reranker(), "Router should have reranker when config provides one");
+        assert!(!router.has_embedder(), "Router should not have embedder without embed config");
     }
 }

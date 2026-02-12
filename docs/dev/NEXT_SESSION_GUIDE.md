@@ -1,8 +1,8 @@
 # Next Session Guide - QMD Development
 
-**Last Updated**: 2026-02-12
-**Current Phase**: Phase 8 Complete ✅
-**Next Phase**: Phase 9 — LLM Reranker 真实集成
+**Last Updated**: 2026-02-13
+**Current Phase**: Phase 9 Complete ✅
+**Next Phase**: Phase 10 — Schema 完善与缓存
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
 
@@ -251,7 +251,7 @@ models:
     local_path: "~/.cache/qmd/models/nomic-embed-text-v1.5.gguf"  # Symlink to .f16.gguf
     remote: "text-embedding-3-small"
   rerank:
-    local: "bge-reranker-base"
+    local: "bge-reranker-v2-m3-Q8_0"
     remote: "gpt-4o-mini"
   query_expansion:
     local: "rule-based"
@@ -396,7 +396,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ## 🎉 Summary
 
-**Phase 1, 2, 3, 4A, 4B, 4C, 4D, 5, 6, 7 & 8 Complete!** The QMD Rust project now has:
+**Phase 1, 2, 3, 4A, 4B, 4C, 4D, 5, 6, 7, 8 & 9 Complete!** The QMD Rust project now has:
 - ✅ Full vector search implementation with sqlite-vec (768-dim)
 - ✅ Real embedding model integration (nomic-embed-text-v1.5 with GPU acceleration)
 - ✅ Hybrid search combining BM25 + Vector search
@@ -414,6 +414,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 - ✅ **Chunk-level embeddings** - each chunk gets independent vector, aggregated back to document level for search results
 - ✅ **MCP Server** - rmcp v0.15.0 SDK, 5 tools (search/vsearch/query/get/status), stdio transport, async/sync separation pattern
 - ✅ **Agent 智能路由** - QueryIntent 意图分类 (Keyword/Semantic/Complex), classify_intent 规则引擎, 强制路由 (/bm25/vector/hybrid), 14 个单元测试
+- ✅ **LLM Reranker 真实推理** - BGE-reranker-v2-m3 交叉编码器，LlamaPoolingType::Rank，模型缓存，title+path 重排上下文，109 个测试全部通过
 
 ---
 
@@ -500,27 +501,31 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ---
 
-### Phase 9: LLM Reranker 真实集成（中优先级）
+### Phase 9: LLM Reranker 真实集成（中优先级）✅ COMPLETED
 
-**目标**: 集成真实 reranker 模型，实现位置感知混合排序
+**完成内容**:
+1. ✅ `LocalReranker` 真实推理 — 使用 `LlamaPoolingType::Rank` 交叉编码器评分
+2. ✅ BGE-reranker 提示格式: `"{query}</s><s>{doc}"`，从 `embeddings_seq_ith(0)[0]` 提取标量分数
+3. ✅ 模型缓存 — `Mutex<Option<CachedLlamaModel>>`，首次加载后复用
+4. ✅ `Router::rerank()` 改进 — 传递 `title + path` 而非仅 title，提供更丰富的重排上下文
+5. ✅ 优雅降级 — 模型不存在或 llama-cpp feature 未启用时回退到随机分数
+6. ✅ 新增 3 个测试: test_local_reranker_new, test_local_reranker_fallback_no_model, test_router_has_reranker_with_config
+7. ✅ 测试总数：109（59 单元 + 50 集成），全部通过
 
-**当前问题**:
-- reranker 有框架但无真实模型集成
-- 查询扩展仅 rule-based 关键词匹配
-- RRF 使用固定权重，缺少原版的位置感知混合排序
-
-**需要实现**:
-1. 下载 reranker 模型（qwen3-reranker-0.6b 或 bge-reranker-base）
-2. 实现 Yes/No + logprob 打分机制
-3. 位置感知混合排序:
-   - Top 1-3: 75% RRF / 25% reranker
-   - Top 4-10: 60% RRF / 40% reranker
-   - Top 11+: 40% RRF / 60% reranker
-4. LLM 查询扩展（用本地模型生成查询变体）
+**使用方法**:
+```bash
+# 下载 reranker 模型
+huggingface-cli download gpustack/bge-reranker-v2-m3-GGUF bge-reranker-v2-m3-Q8_0.gguf --local-dir ~/.cache/qmd/models/
+```
+```yaml
+# ~/.config/qmd/index.yaml
+models:
+  rerank:
+    local: "bge-reranker-v2-m3-Q8_0"
+```
 
 **涉及文件**:
-- `src/llm/mod.rs` — reranker 模型加载和推理
-- `src/store/mod.rs` — 位置感知混合排序算法
+- `src/llm/mod.rs` — LocalReranker 真实推理实现、Router::rerank() 改进
 
 ---
 
@@ -560,12 +565,12 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 | 6 | 文档分块系统 | 🔴 高 | ✅ 完成 |
 | 7 | MCP 模块重新启用 | 🔴 高 | ✅ 完成 |
 | 8 | Agent 智能路由 | 🟡 中 | ✅ 完成 |
-| 9 | LLM Reranker 真实集成 | 🟡 中 | ⬅️ 下一步 |
-| 10 | Schema 完善与缓存 | 🟢 低 | 待开始 |
+| 9 | LLM Reranker 真实集成 | 🟡 中 | ✅ 完成 |
+| 10 | Schema 完善与缓存 | 🟢 低 | ⬅️ 下一步 |
 | 11 | LanceDB 后端 | 🟢 低 | 待开始 |
 | 12 | Go / Python 实现 | 🟢 低 | 待开始 |
 
-**建议执行顺序**: Phase 9 → 10 → 11 → 12
+**建议执行顺序**: Phase 10 → 11 → 12
 
 ---
 
