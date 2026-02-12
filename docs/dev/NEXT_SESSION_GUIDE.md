@@ -481,21 +481,20 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ---
 
-### Phase 8: Agent 智能路由（中优先级）
+### Phase 8: Agent 智能路由（中优先级） ✅ 完成
 
 **目标**: 实现 agent 模式的查询意图分类和自动路由
 
-**当前问题**:
-- `cli/agent.rs:23-26` — 只有 TODO 注释，无实际逻辑
-- 交互模式只打印输入，不执行搜索
-
-**需要实现**:
-1. 查询意图分类器 — 关键词查询 → BM25, 语义查询 → vector, 复杂查询 → hybrid
-2. 交互式 agent 循环 — 接收查询 → 分类 → 路由 → 格式化输出
-3. 可选: LLM 辅助意图分类（需要本地模型支持）
+**已完成**:
+1. ✅ `QueryIntent` 枚举 — Keyword / Semantic / Complex 三种意图分类
+2. ✅ `classify_intent()` 规则引擎 — 基于词数、问句词、布尔运算符、引号等启发式分类
+3. ✅ 路由执行 — Keyword→BM25, Semantic→vector search, Complex→hybrid search
+4. ✅ 交互式 agent 循环 — 分类→路由→格式化输出，支持 help/mode/exit 命令
+5. ✅ 强制路由 — `/bm25`、`/vector`、`/hybrid` 前缀覆盖自动分类
+6. ✅ 14 个单元测试覆盖分类器和强制路由解析
 
 **涉及文件**:
-- `src/cli/agent.rs` — 实现路由逻辑
+- `src/cli/agent.rs` — 完整实现
 
 ---
 
@@ -558,7 +557,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 | 5 | Collection 配置持久化 | 🔴 高 | ✅ 完成 |
 | 6 | 文档分块系统 | 🔴 高 | ✅ 完成 |
 | 7 | MCP 模块重新启用 | 🔴 高 | ✅ 完成 |
-| 8 | Agent 智能路由 | 🟡 中 | 待开始 |
+| 8 | Agent 智能路由 | 🟡 中 | ✅ 完成 |
 | 9 | LLM Reranker 真实集成 | 🟡 中 | 待开始 |
 | 10 | Schema 完善与缓存 | 🟢 低 | 待开始 |
 | 11 | LanceDB 后端 | 🟢 低 | 待开始 |
