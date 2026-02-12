@@ -1,8 +1,8 @@
 # Next Session Guide - QMD Development
 
 **Last Updated**: 2026-02-13
-**Current Phase**: Phase 9 Complete ✅
-**Next Phase**: Phase 10 — Schema 完善与缓存
+**Current Phase**: Phase 10 Complete ✅
+**Next Phase**: Phase 11 — LanceDB 后端
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
 
@@ -396,7 +396,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ## 🎉 Summary
 
-**Phase 1, 2, 3, 4A, 4B, 4C, 4D, 5, 6, 7, 8 & 9 Complete!** The QMD Rust project now has:
+**Phase 1, 2, 3, 4A, 4B, 4C, 4D, 5, 6, 7, 8, 9 & 10 Complete!** The QMD Rust project now has:
 - ✅ Full vector search implementation with sqlite-vec (768-dim)
 - ✅ Real embedding model integration (nomic-embed-text-v1.5 with GPU acceleration)
 - ✅ Hybrid search combining BM25 + Vector search
@@ -405,8 +405,8 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 - ✅ Async/await throughout the codebase
 - ✅ All runtime issues resolved
 - ✅ Semantic search working with real embeddings (no more random vectors!)
-- ✅ **42 unit tests** covering RRF fusion, BM25 search, query expansion, embedding normalization, schema init, chunker
-- ✅ **50 integration tests** covering store, formatter, config, hybrid search, CLI, chunking
+- ✅ **59 unit tests** covering RRF fusion, BM25 search, query expansion, embedding normalization, schema init, chunker, agent routing, reranker
+- ✅ **51 integration tests** covering store, formatter, config, hybrid search, CLI, chunking
 - ✅ **vec0 graceful degradation** — sqlite-vec table creation no longer crashes when extension unavailable
 - ✅ **Model caching** - embedding model loads once, reused across queries (Mutex<Option<CachedLlamaModel>>)
 - ✅ **Code cleanup** - removed 6 deprecated sync methods, cleaner async-only codebase
@@ -414,7 +414,8 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 - ✅ **Chunk-level embeddings** - each chunk gets independent vector, aggregated back to document level for search results
 - ✅ **MCP Server** - rmcp v0.15.0 SDK, 5 tools (search/vsearch/query/get/status), stdio transport, async/sync separation pattern
 - ✅ **Agent 智能路由** - QueryIntent 意图分类 (Keyword/Semantic/Complex), classify_intent 规则引擎, 强制路由 (/bm25/vector/hybrid), 14 个单元测试
-- ✅ **LLM Reranker 真实推理** - BGE-reranker-v2-m3 交叉编码器，LlamaPoolingType::Rank，模型缓存，title+path 重排上下文，109 个测试全部通过
+- ✅ **LLM Reranker 真实推理** - BGE-reranker-v2-m3 交叉编码器，LlamaPoolingType::Rank，模型缓存，title+path 重排上下文
+- ✅ **Schema 完善** - docid 文档标识符, path_contexts 路径上下文表, llm_cache LLM 缓存表, XML 输出格式
 
 ---
 
@@ -529,13 +530,24 @@ models:
 
 ---
 
-### Phase 10: Schema 完善与缓存（低优先级）
+### Phase 10: Schema 完善与缓存（低优先级）✅ COMPLETED
 
-**需要实现**:
-1. `path_contexts` 表 — 路径上下文描述（原版 schema 要求）
-2. `llm_cache` 表 — LLM 响应缓存，避免重复推理
-3. `docid` 短标识符 — 6位 hash 短 ID
-4. XML 输出格式 — formatter 当前支持 CLI/JSON/Markdown/CSV/Files，缺 XML
+**完成内容**:
+1. ✅ `docid` 字段 — SearchResult 新增 docid 字段，`make_docid(collection, path)` 生成 "collection:path" 格式标识符
+2. ✅ XML 输出格式 — `--format xml` 支持，带 XML 转义，集成到 Format 枚举和所有测试
+3. ✅ `path_contexts` 表 — (path PK, description, created_at, updated_at)，CRUD 方法: set/get/list/remove_path_context，集成到 context CLI
+4. ✅ `llm_cache` 表 — (cache_key PK, model, response, created_at, expires_at)，CRUD 方法: cache_get/set/clear_expired/clear_all，支持 TTL 过期
+5. ✅ 所有格式化器 (CLI/Markdown/CSV/MCP) 更新输出 docid 字段
+6. ✅ 测试总数：110（59 单元 + 51 集成），全部通过
+
+**涉及文件**:
+- `src/store/mod.rs` — SearchResult docid 字段、make_docid()、path_contexts/llm_cache 表和 CRUD
+- `src/formatter/mod.rs` — XML 格式、docid 输出
+- `src/mcp/mod.rs` — MCP 输出包含 docid
+- `src/cli/mod.rs` — format 帮助文本更新
+- `src/cli/context.rs` — 集成 path_contexts 数据库持久化
+- `tests/formatter_integration.rs` — XML 测试、docid 字段
+- `tests/hybrid_search_integration.rs` — docid 字段
 
 ---
 
@@ -566,8 +578,8 @@ models:
 | 7 | MCP 模块重新启用 | 🔴 高 | ✅ 完成 |
 | 8 | Agent 智能路由 | 🟡 中 | ✅ 完成 |
 | 9 | LLM Reranker 真实集成 | 🟡 中 | ✅ 完成 |
-| 10 | Schema 完善与缓存 | 🟢 低 | ⬅️ 下一步 |
-| 11 | LanceDB 后端 | 🟢 低 | 待开始 |
+| 10 | Schema 完善与缓存 | 🟢 低 | ✅ 完成 |
+| 11 | LanceDB 后端 | 🟢 低 | ⬅️ 下一步 |
 | 12 | Go / Python 实现 | 🟢 低 | 待开始 |
 
 **建议执行顺序**: Phase 10 → 11 → 12

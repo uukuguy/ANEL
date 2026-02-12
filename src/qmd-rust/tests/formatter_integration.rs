@@ -4,6 +4,7 @@ use qmd_rust::store::SearchResult;
 fn make_results() -> Vec<SearchResult> {
     vec![
         SearchResult {
+            docid: "project:src/main.rs".to_string(),
             path: "src/main.rs".to_string(),
             collection: "project".to_string(),
             score: 0.95,
@@ -12,6 +13,7 @@ fn make_results() -> Vec<SearchResult> {
             hash: "abc123".to_string(),
         },
         SearchResult {
+            docid: "project:src/lib.rs".to_string(),
             path: "src/lib.rs".to_string(),
             collection: "project".to_string(),
             score: 0.82,
@@ -67,6 +69,12 @@ fn test_format_from_string_files() {
     assert!(matches!(f2, Format::Files));
 }
 
+#[test]
+fn test_format_from_string_xml() {
+    let f = Format::from_string("xml");
+    assert!(matches!(f, Format::Xml));
+}
+
 // ==================== Format Output Tests ====================
 // These tests capture stdout to verify output content.
 
@@ -120,9 +128,16 @@ fn test_format_files_no_panic() {
 }
 
 #[test]
+fn test_format_xml_no_panic() {
+    let results = make_results();
+    let fmt = Format::from_string("xml");
+    fmt.format_search_results(&results, 10).unwrap();
+}
+
+#[test]
 fn test_format_empty_results() {
     let results: Vec<SearchResult> = vec![];
-    for fmt_str in &["cli", "json", "md", "csv", "files"] {
+    for fmt_str in &["cli", "json", "md", "csv", "files", "xml"] {
         let fmt = Format::from_string(fmt_str);
         fmt.format_search_results(&results, 10).unwrap();
     }

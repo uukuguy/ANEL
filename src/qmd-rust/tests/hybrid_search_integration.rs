@@ -228,6 +228,7 @@ fn test_search_result_limit() {
 
 fn make_result(path: &str, collection: &str, score: f32) -> SearchResult {
     SearchResult {
+        docid: format!("{}:{}", collection, path),
         path: path.to_string(),
         collection: collection.to_string(),
         score,

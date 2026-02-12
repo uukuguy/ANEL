@@ -28,7 +28,7 @@ pub mod agent;
 /// Output format options
 #[derive(Debug, Clone, Args)]
 pub struct FormatOptions {
-    /// Output format: cli, json, md, csv, files
+    /// Output format: cli, json, md, csv, files, xml
     #[arg(long, default_value = "cli")]
     pub format: String,
     /// Number of results to return

@@ -11,12 +11,18 @@ use log::{info, warn};
 /// Search result structure
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchResult {
+    pub docid: String,
     pub path: String,
     pub collection: String,
     pub score: f32,
     pub lines: usize,
     pub title: String,
     pub hash: String,
+}
+
+/// Generate a stable document ID from collection and path
+pub fn make_docid(collection: &str, path: &str) -> String {
+    format!("{}:{}", collection, path)
 }
 
 /// Search options
@@ -194,6 +200,27 @@ impl Store {
             CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
         "#)?;
 
+        conn.execute_batch(r#"
+            -- Path contexts for relevance hints
+            CREATE TABLE IF NOT EXISTS path_contexts (
+                path TEXT PRIMARY KEY,
+                description TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+        "#)?;
+
+        conn.execute_batch(r#"
+            -- LLM response cache
+            CREATE TABLE IF NOT EXISTS llm_cache (
+                cache_key TEXT PRIMARY KEY,
+                model TEXT NOT NULL,
+                response TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT
+            );
+        "#)?;
+
         Ok(())
     }
 
@@ -242,7 +269,9 @@ impl Store {
                     .collect();
 
                 for (rowid, score, title, filepath) in rows {
+                    let docid = make_docid(collection, &filepath);
                     results.push(SearchResult {
+                        docid,
                         path: filepath,
                         collection: collection.to_string(),
                         score: score as f32,
@@ -387,7 +416,9 @@ impl Store {
             .collect();
 
         for (hash, path, title, collection, distance) in rows {
+            let docid = make_docid(&collection, &path);
             results.push(SearchResult {
+                docid,
                 path,
                 collection,
                 score: distance as f32,
@@ -558,6 +589,7 @@ impl Store {
             }
 
             SearchResult {
+                docid: make_docid(&data.1, &path),
                 path,
                 collection: data.1,
                 score: final_score,
@@ -566,6 +598,121 @@ impl Store {
                 hash: data.4,
             }
         }).collect()
+    }
+
+    /// Set a path context (upsert)
+    pub fn set_path_context(&self, collection: &str, path: &str, description: &str) -> Result<()> {
+        let conn = self.get_connection(collection)?;
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO path_contexts (path, description, created_at, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(path) DO UPDATE SET
+                description = excluded.description,
+                updated_at = excluded.updated_at",
+            [path, description, &now, &now],
+        )?;
+        Ok(())
+    }
+
+    /// Get a path context
+    pub fn get_path_context(&self, collection: &str, path: &str) -> Result<Option<(String, String)>> {
+        let conn = self.get_connection(collection)?;
+        let result = conn.query_row(
+            "SELECT description, updated_at FROM path_contexts WHERE path = ?",
+            [path],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        );
+        match result {
+            Ok(row) => Ok(Some(row)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// List all path contexts in a collection
+    pub fn list_path_contexts(&self, collection: &str) -> Result<Vec<(String, String)>> {
+        let conn = self.get_connection(collection)?;
+        let mut stmt = conn.prepare(
+            "SELECT path, description FROM path_contexts ORDER BY path"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Remove a path context
+    pub fn remove_path_context(&self, collection: &str, path: &str) -> Result<bool> {
+        let conn = self.get_connection(collection)?;
+        let deleted = conn.execute(
+            "DELETE FROM path_contexts WHERE path = ?",
+            [path],
+        )?;
+        Ok(deleted > 0)
+    }
+
+    /// Get a cached LLM response
+    pub fn cache_get(&self, collection: &str, cache_key: &str) -> Result<Option<String>> {
+        let conn = self.get_connection(collection)?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let result = conn.query_row(
+            "SELECT response FROM llm_cache
+             WHERE cache_key = ? AND (expires_at IS NULL OR expires_at > ?)",
+            [cache_key, &now],
+            |row| row.get::<_, String>(0),
+        );
+        match result {
+            Ok(response) => Ok(Some(response)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Set a cached LLM response
+    pub fn cache_set(
+        &self,
+        collection: &str,
+        cache_key: &str,
+        model: &str,
+        response: &str,
+        ttl_seconds: Option<i64>,
+    ) -> Result<()> {
+        let conn = self.get_connection(collection)?;
+        let now = chrono::Utc::now();
+        let created_at = now.to_rfc3339();
+        let expires_at = ttl_seconds.map(|ttl| {
+            (now + chrono::Duration::seconds(ttl)).to_rfc3339()
+        });
+        conn.execute(
+            "INSERT INTO llm_cache (cache_key, model, response, created_at, expires_at)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(cache_key) DO UPDATE SET
+                model = excluded.model,
+                response = excluded.response,
+                created_at = excluded.created_at,
+                expires_at = excluded.expires_at",
+            rusqlite::params![cache_key, model, response, created_at, expires_at],
+        )?;
+        Ok(())
+    }
+
+    /// Clear expired cache entries
+    pub fn cache_clear_expired(&self, collection: &str) -> Result<usize> {
+        let conn = self.get_connection(collection)?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let deleted = conn.execute(
+            "DELETE FROM llm_cache WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            [&now],
+        )?;
+        Ok(deleted)
+    }
+
+    /// Clear all cache entries
+    pub fn cache_clear_all(&self, collection: &str) -> Result<usize> {
+        let conn = self.get_connection(collection)?;
+        let deleted = conn.execute("DELETE FROM llm_cache", [])?;
+        Ok(deleted)
     }
 
     /// Update index
@@ -745,6 +892,7 @@ mod tests {
     /// Helper to create a SearchResult for testing
     fn make_result(path: &str, score: f32) -> SearchResult {
         SearchResult {
+            docid: make_docid("test", path),
             path: path.to_string(),
             collection: "test".to_string(),
             score,
@@ -869,6 +1017,7 @@ mod tests {
     #[test]
     fn test_rrf_fusion_preserves_metadata() {
         let list = vec![SearchResult {
+            docid: make_docid("my_collection", "test/doc.md"),
             path: "test/doc.md".to_string(),
             collection: "my_collection".to_string(),
             score: 0.5,

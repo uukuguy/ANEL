@@ -9,6 +9,7 @@ pub enum Format {
     Markdown,
     Csv,
     Files,
+    Xml,
 }
 
 impl Format {
@@ -19,6 +20,7 @@ impl Format {
             "md" | "markdown" => Self::Markdown,
             "csv" => Self::Csv,
             "files" | "paths" => Self::Files,
+            "xml" => Self::Xml,
             _ => Self::Cli,
         }
     }
@@ -33,17 +35,18 @@ impl Format {
             Self::Markdown => self.format_markdown(limited_results),
             Self::Csv => self.format_csv(limited_results),
             Self::Files => self.format_files(limited_results),
+            Self::Xml => self.format_xml(limited_results),
         }
     }
 
     fn format_cli(&self, results: &[SearchResult]) -> Result<(), anyhow::Error> {
         println!("Found {} results:", results.len());
-        println!("{:<6} {:<8} Path", "Score", "Lines");
-        println!("{}", "-".repeat(80));
+        println!("{:<6} {:<8} {:<40} Path", "Score", "Lines", "DocID");
+        println!("{}", "-".repeat(100));
 
         for result in results {
             let score = format!("{:.4}", result.score);
-            println!("{:<6} {:<8} {}", score, result.lines, result.path);
+            println!("{:<6} {:<8} {:<40} {}", score, result.lines, result.docid, result.path);
         }
         Ok(())
     }
@@ -74,6 +77,7 @@ impl Format {
 
         for (i, result) in results.iter().enumerate() {
             println!("## {}. {}", i + 1, result.path);
+            println!("- **DocID**: {}", result.docid);
             println!("- **Score**: {:.4}", result.score);
             println!("- **Lines**: {}", result.lines);
             println!();
@@ -82,9 +86,9 @@ impl Format {
     }
 
     fn format_csv(&self, results: &[SearchResult]) -> Result<(), anyhow::Error> {
-        println!("score,lines,path");
+        println!("docid,score,lines,path");
         for result in results {
-            println!("{:.4},{},{}", result.score, result.lines, result.path);
+            println!("{},{:.4},{},{}", result.docid, result.score, result.lines, result.path);
         }
         Ok(())
     }
@@ -95,4 +99,30 @@ impl Format {
         }
         Ok(())
     }
+
+    fn format_xml(&self, results: &[SearchResult]) -> Result<(), anyhow::Error> {
+        println!(r#"<?xml version="1.0" encoding="UTF-8"?>"#);
+        println!("<results total=\"{}\">", results.len());
+        for result in results {
+            println!("  <result>");
+            println!("    <docid>{}</docid>", escape_xml(&result.docid));
+            println!("    <path>{}</path>", escape_xml(&result.path));
+            println!("    <collection>{}</collection>", escape_xml(&result.collection));
+            println!("    <title>{}</title>", escape_xml(&result.title));
+            println!("    <score>{:.4}</score>", result.score);
+            println!("    <lines>{}</lines>", result.lines);
+            println!("  </result>");
+        }
+        println!("</results>");
+        Ok(())
+    }
+}
+
+/// Escape special XML characters
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }

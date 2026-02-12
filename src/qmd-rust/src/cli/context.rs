@@ -1,5 +1,6 @@
 use crate::cli::{ContextCommands, ContextAddArgs, ContextRemoveArgs};
 use crate::config::Config;
+use crate::store::Store;
 use anyhow::Result;
 use std::path::PathBuf;
 
@@ -26,17 +27,18 @@ fn add_context(args: &ContextAddArgs, config: &mut Config) -> Result<()> {
         anyhow::bail!("Path does not exist: {}", path.display());
     }
 
+    let path_str = path.display().to_string();
+
     // Check if this path already has a context description
     let existing = config.collections.iter().position(|c| c.path == path);
-    match existing {
+    let collection_name = match existing {
         Some(i) => {
-            // Update existing collection's description
             config.collections[i].description = Some(args.description.clone());
             config.save()?;
             println!("Context updated:");
+            config.collections[i].name.clone()
         }
         None => {
-            // Add as a new collection with the path as name
             let name = path
                 .file_name()
                 .unwrap_or_default()
@@ -44,7 +46,7 @@ fn add_context(args: &ContextAddArgs, config: &mut Config) -> Result<()> {
                 .to_string();
 
             let collection = crate::config::CollectionConfig {
-                name,
+                name: name.clone(),
                 path: path.clone(),
                 pattern: Some("**/*".to_string()),
                 description: Some(args.description.clone()),
@@ -52,6 +54,14 @@ fn add_context(args: &ContextAddArgs, config: &mut Config) -> Result<()> {
             config.collections.push(collection);
             config.save()?;
             println!("Context added:");
+            name
+        }
+    };
+
+    // Also persist to database
+    if let Ok(store) = Store::new(config) {
+        if let Err(e) = store.set_path_context(&collection_name, &path_str, &args.description) {
+            log::warn!("Failed to persist context to database: {e}");
         }
     }
 
@@ -89,13 +99,22 @@ fn list_contexts(config: &Config) -> Result<()> {
 /// Remove a context
 fn remove_context(args: &ContextRemoveArgs, config: &mut Config) -> Result<()> {
     let path = shellexpand::tilde(&args.path).parse::<PathBuf>()?;
+    let path_str = path.display().to_string();
 
     let idx = config.collections.iter().position(|c| c.path == path);
     match idx {
         Some(i) => {
-            // Clear description rather than removing the collection entirely
+            let collection_name = config.collections[i].name.clone();
             config.collections[i].description = None;
             config.save()?;
+
+            // Also remove from database
+            if let Ok(store) = Store::new(config) {
+                if let Err(e) = store.remove_path_context(&collection_name, &path_str) {
+                    log::warn!("Failed to remove context from database: {e}");
+                }
+            }
+
             println!("Context removed for: {}", path.display());
         }
         None => {

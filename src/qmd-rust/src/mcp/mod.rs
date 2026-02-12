@@ -307,11 +307,12 @@ fn format_search_results(results: &[crate::store::SearchResult]) -> String {
         .enumerate()
         .map(|(i, r)| {
             format!(
-                "{}. [{}] {} (score: {:.4})\n   Path: {}",
+                "{}. [{}] {} (score: {:.4}, docid: {})\n   Path: {}",
                 i + 1,
                 r.collection,
                 r.title,
                 r.score,
+                r.docid,
                 r.path,
             )
         })
