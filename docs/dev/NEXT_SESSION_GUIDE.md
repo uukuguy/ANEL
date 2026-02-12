@@ -1,7 +1,7 @@
 # Next Session Guide - QMD Development
 
 **Last Updated**: 2026-02-12
-**Current Phase**: Phase 6 Complete ✅
+**Current Phase**: Phase 7 Complete ✅
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
 
@@ -395,7 +395,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ## 🎉 Summary
 
-**Phase 1, 2, 3, 4A, 4B, 4C, 4D, 5 & 6 Complete!** The QMD Rust project now has:
+**Phase 1, 2, 3, 4A, 4B, 4C, 4D, 5, 6 & 7 Complete!** The QMD Rust project now has:
 - ✅ Full vector search implementation with sqlite-vec (768-dim)
 - ✅ Real embedding model integration (nomic-embed-text-v1.5 with GPU acceleration)
 - ✅ Hybrid search combining BM25 + Vector search
@@ -411,6 +411,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 - ✅ **Code cleanup** - removed 6 deprecated sync methods, cleaner async-only codebase
 - ✅ **Document chunking** - intelligent boundary-aware splitting (paragraph > sentence > word), 800 tokens/chunk with 15% overlap
 - ✅ **Chunk-level embeddings** - each chunk gets independent vector, aggregated back to document level for search results
+- ✅ **MCP Server** - rmcp v0.15.0 SDK, 5 tools (search/vsearch/query/get/status), stdio transport, async/sync separation pattern
 
 ---
 
@@ -457,28 +458,26 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ---
 
-### Phase 7: MCP 模块重新启用（高优先级）
+### Phase 7: MCP 模块重新启用（高优先级）✅ COMPLETED
 
-**目标**: 修复 MCP 依赖问题，实现完整的 MCP Server 功能
-
-**当前问题**:
-- MCP 模块因 `mcp_sdk` 依赖问题暂时禁用（编译不通过）
-- `mcp/mod.rs:203` — get 工具返回占位文本
-- `mcp/mod.rs:222` — status 工具返回硬编码 "OK"
-- `mcp/mod.rs:50` — SSE transport 未实现
-- `mcp/mod.rs:119` — vsearch 调用已删除的 `store.vector_search()` 方法
-
-**需要实现**:
-1. 评估 Rust MCP SDK 选项（rmcp / mcp-rust-sdk / 自行实现 JSON-RPC）
-2. 修复编译问题，重新启用 MCP 模块
-3. 实现 get 工具 — 真实文档内容检索
-4. 实现 status 工具 — 返回真实索引统计
-5. 更新 vsearch/query 工具调用为异步版本
-6. 虚拟路径系统 `qmd://collection/path`
-
-**涉及文件**:
-- `Cargo.toml` — MCP SDK 依赖
-- `src/mcp/mod.rs` — 完整重写
+**完成内容**:
+1. 选用 `rmcp` v0.15.0 (transport-io feature) 作为 MCP SDK（3.3M 下载量，官方推荐）
+2. `schemars` 升级到 v1.2.1（匹配 rmcp 依赖，v0.8 不兼容）
+3. `src/mcp/mod.rs` — 完全重写，实现 5 个 MCP 工具：
+   - `search`: BM25 全文搜索
+   - `vsearch`: 向量语义搜索（async embed + sync DB 查询分离）
+   - `query`: 混合搜索（BM25 + vector + RRF fusion + rerank）
+   - `get`: 按路径读取文档内容（支持行范围）
+   - `status`: 索引统计信息
+4. 关键架构决策：
+   - Store 用 `std::sync::Mutex` 包装（rusqlite::Connection 不是 Send/Sync）
+   - Router 用 `tokio::sync::Mutex` 包装（async LLM 调用）
+   - async LLM 调用与 sync DB 操作分离，避免在 await 点持有 non-Send MutexGuard
+5. `src/store/mod.rs` — 新增 `vector_search_with_embedding()` 公开方法，接受预计算 embedding
+6. `src/store/mod.rs` — `rrf_fusion()` 改为 pub，供 MCP query handler 调用
+7. `src/lib.rs` — 取消 mcp 模块注释
+8. `src/main.rs` — 添加 MCP 命令处理
+9. 测试总数：92（42 单元 + 50 集成），全部通过
 
 ---
 
@@ -558,14 +557,14 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 |-------|------|--------|------|
 | 5 | Collection 配置持久化 | 🔴 高 | ✅ 完成 |
 | 6 | 文档分块系统 | 🔴 高 | ✅ 完成 |
-| 7 | MCP 模块重新启用 | 🔴 高 | 待开始 |
+| 7 | MCP 模块重新启用 | 🔴 高 | ✅ 完成 |
 | 8 | Agent 智能路由 | 🟡 中 | 待开始 |
 | 9 | LLM Reranker 真实集成 | 🟡 中 | 待开始 |
 | 10 | Schema 完善与缓存 | 🟢 低 | 待开始 |
 | 11 | LanceDB 后端 | 🟢 低 | 待开始 |
 | 12 | Go / Python 实现 | 🟢 低 | 待开始 |
 
-**建议执行顺序**: Phase 5 → 6 → 7 → 9 → 8 → 10 → 11 → 12
+**建议执行顺序**: Phase 8 → 9 → 10 → 11 → 12
 
 ---
 

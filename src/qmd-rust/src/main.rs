@@ -8,7 +8,7 @@ mod cli;
 mod config;
 mod formatter;
 mod llm;
-// mod mcp;  // Temporarily disabled due to mcp-sdk dependency issues
+mod mcp;
 mod store;
 
 fn main() -> Result<()> {
@@ -70,9 +70,8 @@ fn main() -> Result<()> {
             let store = store::Store::new(&config)?;
             crate::cli::cleanup::handle(cmd, &store)?;
         }
-        Commands::Mcp(_cmd) => {
-            log::warn!("MCP server is temporarily disabled due to dependency issues");
-            log::info!("To re-enable, uncomment mcp-sdk in Cargo.toml and fix API compatibility");
+        Commands::Mcp(cmd) => {
+            mcp::run_server(cmd, &config)?;
         }
         Commands::Agent(cmd) => {
             let store = store::Store::new(&config)?;

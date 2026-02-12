@@ -275,6 +275,18 @@ impl Store {
         // Get the embedding vector
         let query_vector = &embedding_result.embeddings[0];
 
+        self.vector_search_with_embedding(query_vector, options)
+    }
+
+    /// Vector search with a pre-computed embedding vector (sync)
+    ///
+    /// Performs similarity search using a pre-computed embedding vector.
+    /// Useful when the embedding has already been generated externally.
+    pub fn vector_search_with_embedding(
+        &self,
+        query_vector: &[f32],
+        options: SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
         // Perform vector search in each collection
         let mut results = Vec::new();
 
@@ -488,7 +500,7 @@ impl Store {
     /// - k is a constant (typically 60)
     ///
     /// The algorithm also applies a Top-Rank Bonus to give extra weight to highly-ranked results.
-    fn rrf_fusion(
+    pub fn rrf_fusion(
         result_lists: &[Vec<SearchResult>],
         weights: Option<Vec<f32>>,
         k: u32,
