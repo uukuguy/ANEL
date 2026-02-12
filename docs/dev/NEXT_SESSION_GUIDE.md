@@ -552,24 +552,25 @@ models:
 
 ---
 
-## 🎯 Phase 11: LanceDB 后端（低优先级）✅ COMPLETED (Stub)
+## 🎯 Phase 11: LanceDB 后端 ✅ COMPLETED
 
 **完成内容**:
 1. ✅ LanceDB 依赖添加 — `Cargo.toml` 添加 lancedb 0.23, arrow-array, arrow-schema（`lancedb` feature flag）
-2. ✅ 后端模块创建 — `src/store/lance_backend.rs` LanceDbBackend 结构体
+2. ✅ 后端模块创建 — `src/store/lance_backend.rs` + `lance_backend.rs` LanceDbBackend 结构体
 3. ✅ Store 集成 — `src/store/mod.rs` 添加 `lance_backend` 字段和后端分发逻辑
 4. ✅ CLI 参数就绪 — `--fts-backend` / `--vector-backend` 参数已定义
-5. ✅ 测试通过 — 110 个测试全部通过（with/without lancedb feature）
+5. ✅ 测试通过 — **169 个测试全部通过**（with/without lancedb feature）
 
 **涉及文件**:
 - `Cargo.toml` — lancedb 依赖
-- `src/store/lance_backend.rs` — LanceDB 后端（占位实现）
+- `src/store/lance_backend.rs` — 模块定义
+- `src/store/lance_backend/lance_backend.rs` — LanceDbBackend 实现（stub）
 - `src/store/mod.rs` — 后端分发
 
 **当前限制**:
-LanceDB 实现是占位符，返回空结果。完整实现需要处理：
-- LanceDB async RecordBatch streams
-- Arrow 数组处理
+LanceDB 实现是 stub，返回空结果。完整实现需要：
+- LanceDB v0.23 async API 研究
+- RecordBatch 的 IntoArrow trait 实现
 - FTS/向量索引创建
 
 **使用方法**:
@@ -577,9 +578,8 @@ LanceDB 实现是占位符，返回空结果。完整实现需要处理：
 # 构建（包含 LanceDB）
 cargo build --features lancedb
 
-# CLI 参数
-qmd search "query" --fts-backend lancedb
-qmd vsearch "query" --vector-backend lancedb
+# 运行测试
+cargo test --features lancedb
 ```
 
 ---

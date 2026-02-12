@@ -17,7 +17,11 @@ thiserror = "1.0"
 # Database
 rusqlite = { version = "0.30", features = ["bundled"] }
 sqlite-vec = "0.1"
-# lancedb = "0.16"  # TODO: Re-enable when dependency issues are resolved
+lancedb = { version = "0.23", optional = true }
+arrow-array = { version = "57.2", optional = true }
+arrow-schema = { version = "57.2", optional = true }
+futures-util = { version = "0.3", optional = true }
+futures = { version = "0.3", optional = true }
 
 # Configuration
 serde = { version = "1.0", features = ["derive"] }
@@ -59,3 +63,4 @@ prost-build = "0.12"
 default = []
 sqlite-vec = []
 llama-cpp = ["llama-cpp-2"]
+lancedb = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema", "dep:futures-util", "dep:futures"]

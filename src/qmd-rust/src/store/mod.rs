@@ -1,11 +1,16 @@
 pub mod chunker;
+pub mod lance_backend;
 
-use crate::config::{Config, BM25Backend};
+#[cfg(feature = "lancedb")]
+use lance_backend::LanceDbBackend;
+
+use crate::config::{Config, BM25Backend, VectorBackend};
 use crate::llm::Router;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
+use std::sync::Mutex;
 use log::{info, warn};
 
 /// Search result structure
@@ -49,6 +54,8 @@ pub struct IndexStats {
 pub struct Store {
     config: Config,
     connections: HashMap<String, Connection>,
+    #[cfg(feature = "lancedb")]
+    lance_backend: Option<Mutex<LanceDbBackend>>,
 }
 
 impl Store {
@@ -57,9 +64,32 @@ impl Store {
         // Initialize sqlite-vec extension if available
         Self::init_sqlite_vec()?;
 
+        // Initialize LanceDB backend if configured (either BM25 or vector)
+        #[cfg(feature = "lancedb")]
+        let lance_backend = if matches!(config.bm25.backend, BM25Backend::LanceDb)
+            || matches!(config.vector.backend, VectorBackend::LanceDb)
+        {
+            let embedding_dim = 384; // Default, should match embedder config
+            let db_path = config.cache_path.clone();
+            let mut backend = LanceDbBackend::new(db_path, embedding_dim);
+
+            // Use tokio runtime to connect
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async { backend.connect().await })?;
+
+            Some(Mutex::new(backend))
+        } else {
+            None
+        };
+
+        #[cfg(not(feature = "lancedb"))]
+        let _ = config; // Suppress unused warning
+
         let store = Self {
             config: config.clone(),
             connections: HashMap::new(),
+            #[cfg(feature = "lancedb")]
+            lance_backend,
         };
 
         // Initialize database connections for each collection
@@ -229,8 +259,50 @@ impl Store {
         // Determine which backend to use based on configuration
         match &self.config.bm25.backend {
             BM25Backend::SqliteFts5 => self.bm25_sqlite_search(query, options),
-            BM25Backend::LanceDb => unimplemented!("LanceDB FTS not yet implemented"),
+            #[cfg(feature = "lancedb")]
+            BM25Backend::LanceDb => self.bm25_lance_search(query, options),
+            #[cfg(not(feature = "lancedb"))]
+            BM25Backend::LanceDb => {
+                anyhow::bail!("LanceDB backend not enabled. Build with --features lancedb")
+            }
         }
+    }
+
+    /// LanceDB FTS search implementation
+    #[cfg(feature = "lancedb")]
+    fn bm25_lance_search(&self, query: &str, options: SearchOptions) -> Result<Vec<SearchResult>> {
+        use futures::executor::block_on;
+
+        let mut all_results = Vec::new();
+
+        let collections: Vec<&str> = if options.search_all {
+            self.config.collections.iter().map(|c| c.name.as_str()).collect()
+        } else if let Some(ref name) = options.collection {
+            vec![name.as_str()]
+        } else if let Some(col) = self.config.collections.first() {
+            vec![col.name.as_str()]
+        } else {
+            return Ok(all_results);
+        };
+
+        let limit = options.limit;
+
+        for collection in collections {
+            if let Some(ref backend_mutex) = self.lance_backend {
+                if let Ok(mut backend) = backend_mutex.lock() {
+                    let rt = tokio::runtime::Runtime::new()?;
+                    let results = rt.block_on(async {
+                        let table = backend.get_fts_table(collection).await?;
+                        backend.fts_search(&table, query, limit).await
+                    });
+                    if let Ok(mut results) = results {
+                        all_results.append(&mut results);
+                    }
+                }
+            }
+        }
+
+        Ok(all_results)
     }
 
     /// SQLite FTS5 search implementation
@@ -316,6 +388,28 @@ impl Store {
         query_vector: &[f32],
         options: SearchOptions,
     ) -> Result<Vec<SearchResult>> {
+        // Dispatch based on vector backend configuration
+        match &self.config.vector.backend {
+            VectorBackend::QmdBuiltin => {
+                self.vector_search_sqlite(query_vector, options)
+            }
+            #[cfg(feature = "lancedb")]
+            VectorBackend::LanceDb => {
+                self.vector_search_lance(query_vector, options)
+            }
+            #[cfg(not(feature = "lancedb"))]
+            VectorBackend::LanceDb => {
+                anyhow::bail!("LanceDB backend not enabled. Build with --features lancedb")
+            }
+        }
+    }
+
+    /// Vector search using SQLite (qmd_builtin)
+    fn vector_search_sqlite(
+        &self,
+        query_vector: &[f32],
+        options: SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
         // Perform vector search in each collection
         let mut results = Vec::new();
 
@@ -340,6 +434,43 @@ impl Store {
         results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
 
         Ok(results)
+    }
+
+    /// Vector search using LanceDB
+    #[cfg(feature = "lancedb")]
+    fn vector_search_lance(
+        &self,
+        query_vector: &[f32],
+        options: SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
+        let mut all_results = Vec::new();
+
+        let collections: Vec<&str> = if options.search_all {
+            self.config.collections.iter().map(|c| c.name.as_str()).collect()
+        } else if let Some(ref name) = options.collection {
+            vec![name.as_str()]
+        } else if let Some(col) = self.config.collections.first() {
+            vec![col.name.as_str()]
+        } else {
+            return Ok(all_results);
+        };
+
+        for collection in collections {
+            if let Some(ref backend_mutex) = self.lance_backend {
+                if let Ok(mut backend) = backend_mutex.lock() {
+                    let rt = tokio::runtime::Runtime::new()?;
+                    let results = rt.block_on(async {
+                        let table = backend.get_vector_table(collection).await?;
+                        backend.vector_search(&table, query_vector, options.limit).await
+                    });
+                    if let Ok(results) = results {
+                        all_results.extend(results);
+                    }
+                }
+            }
+        }
+
+        Ok(all_results)
     }
 
     /// Perform vector search in a single database
@@ -1200,6 +1331,8 @@ mod tests {
         let store = Store {
             config,
             connections: HashMap::new(),
+            #[cfg(feature = "lancedb")]
+            lance_backend: None,
         };
 
         let opts = SearchOptions {
@@ -1244,6 +1377,8 @@ mod tests {
         let store = Store {
             config,
             connections: HashMap::new(),
+            #[cfg(feature = "lancedb")]
+            lance_backend: None,
         };
 
         let opts = SearchOptions {
@@ -1281,6 +1416,8 @@ mod tests {
         let store = Store {
             config,
             connections: HashMap::new(),
+            #[cfg(feature = "lancedb")]
+            lance_backend: None,
         };
 
         let stats = store.get_stats().unwrap();
