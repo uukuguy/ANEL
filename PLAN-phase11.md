@@ -3,7 +3,7 @@
 ## Overview
 Add LanceDB as an alternative backend for both BM25 (full-text search) and vector search, alongside the existing SQLite-based backends. The architecture already has `BM25Backend` and `VectorBackend` enums and CLI args (`--fts-backend`, `--vector-backend`) defined — we need to wire up the actual LanceDB implementation.
 
-## Status: IN PROGRESS
+## Status: COMPLETED (Stub Implementation)
 
 ### Completed:
 1. ✅ Added LanceDB dependencies to Cargo.toml (behind `lancedb` feature flag)
@@ -24,10 +24,18 @@ The LanceDB backend (`lance_backend.rs`) provides the following interface:
 - `insert_vectors(table, vectors)` - Insert vectors (stub)
 
 ### Known Limitations:
-The current LanceDB implementation is a **stub** that returns empty results due to LanceDB v0.23 API changes. Full implementation requires:
-- Understanding the current LanceDB Rust async API
-- Proper RecordBatch handling for data insertion
-- Async stream processing for query results
+The current LanceDB implementation is a **stub** that returns empty results. Key issues discovered during implementation:
+
+1. **Arrow Array Version Mismatch**: LanceDB v0.23 depends on `arrow-array` v56, but qmd-rust uses v57. This causes type incompatibility when trying to use RecordBatch operations.
+
+2. **Private API**: Some LanceDB types like `FtsIndexBuilder` and `Database` are private or in different module locations.
+
+3. **Async API Changes**: The `open_table()` method returns a builder that needs special handling, and the `create_table()` API has changed.
+
+**Solution for Full Implementation**: To fully implement LanceDB support, one option is to:
+- Use LanceDB as an external service instead of embedded mode
+- OR fork qmd to use matching arrow versions (arrow-array v56)
+- OR implement LanceDB support in a separate crate that communicates via IPC
 
 ## LanceDB Rust SDK Key Facts
 - Crate: `lancedb` (v0.23)

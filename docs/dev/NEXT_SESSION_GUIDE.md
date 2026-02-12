@@ -568,10 +568,14 @@ models:
 - `src/store/mod.rs` — 后端分发
 
 **当前限制**:
-LanceDB 实现是 stub，返回空结果。完整实现需要：
-- LanceDB v0.23 async API 研究
-- RecordBatch 的 IntoArrow trait 实现
-- FTS/向量索引创建
+LanceDB 实现是 stub，返回空结果。完整实现需要解决 Arrow Array 版本不匹配问题：
+
+1. **Arrow 版本冲突**: LanceDB v0.23 依赖 arrow-array v56，qmd 使用 v57
+2. **私有 API**: `FtsIndexBuilder` 和 `Database` 是私有类型
+3. **完整实现方案**:
+   - 方案A: 将 LanceDB 作为外部服务运行（推荐）
+   - 方案B: 使用 PyO3 调用 Python 版 LanceDB
+   - 方案C: 在独立 crate 中使用 arrow-array v56
 
 **使用方法**:
 ```bash
