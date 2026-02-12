@@ -16,7 +16,7 @@ fn main() -> Result<()> {
     env_logger::init();
 
     // Load configuration
-    let config = Config::load().context("Failed to load configuration")?;
+    let mut config = Config::load().context("Failed to load configuration")?;
 
     info!("Configuration loaded successfully");
     info!("BM25 backend: {:?}", config.bm25.backend);
@@ -28,10 +28,10 @@ fn main() -> Result<()> {
     // Dispatch commands
     match &cli.command {
         Commands::Collection(cmd) => {
-            crate::cli::collection::handle(cmd, &config)?;
+            crate::cli::collection::handle(cmd, &mut config)?;
         }
         Commands::Context(cmd) => {
-            crate::cli::context::handle(cmd, &config)?;
+            crate::cli::context::handle(cmd, &mut config)?;
         }
         Commands::Get(cmd) => {
             crate::cli::get::handle(cmd, &config)?;

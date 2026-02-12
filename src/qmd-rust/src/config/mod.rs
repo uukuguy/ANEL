@@ -142,7 +142,14 @@ impl Config {
             fs::create_dir_all(parent)?;
         }
 
-        let content = serde_yaml::to_string(self)?;
+        // Create a copy with paths compressed back to tilde format
+        let mut save_config = self.clone();
+        save_config.cache_path = compress_path(&save_config.cache_path);
+        for collection in &mut save_config.collections {
+            collection.path = compress_path(&collection.path);
+        }
+
+        let content = serde_yaml::to_string(&save_config)?;
         fs::write(&config_path, content)?;
 
         info!("Configuration saved to: {:?}", config_path);
@@ -178,4 +185,13 @@ impl Default for Config {
 
 fn expand_path(path: &str) -> PathBuf {
     shellexpand::tilde(path).parse().unwrap()
+}
+
+/// Compress absolute path back to tilde format (e.g., /Users/foo/.cache → ~/.cache)
+fn compress_path(path: &PathBuf) -> PathBuf {
+    let home = expand_path("~");
+    if let Ok(relative) = path.strip_prefix(&home) {
+        return PathBuf::from(format!("~/{}", relative.display()));
+    }
+    path.clone()
 }

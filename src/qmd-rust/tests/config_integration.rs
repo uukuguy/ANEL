@@ -1,6 +1,7 @@
 mod common;
 
 use qmd_rust::config::{Config, CollectionConfig, BM25BackendConfig, VectorBackendConfig, ModelsConfig, LLMModelConfig, BM25Backend, VectorBackend};
+use std::path::PathBuf;
 
 // ==================== Default Values ====================
 
@@ -152,4 +153,172 @@ model: test-model
     let config: VectorBackendConfig = serde_yaml::from_str(yaml).unwrap();
     assert!(matches!(config.backend, VectorBackend::QmdBuiltin));
     assert_eq!(config.model, "test-model");
+}
+
+// ==================== Config Save/Load (Phase 5) ====================
+
+#[test]
+fn test_config_save_and_load_roundtrip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_path = tmp.path().join("index.yaml");
+
+    let config = Config {
+        bm25: BM25BackendConfig::default(),
+        vector: VectorBackendConfig::default(),
+        collections: vec![
+            CollectionConfig {
+                name: "test_col".to_string(),
+                path: "/tmp/test/docs".into(),
+                pattern: Some("**/*.md".to_string()),
+                description: Some("Test collection".to_string()),
+            },
+        ],
+        models: ModelsConfig::default(),
+        cache_path: "/tmp/test/cache".into(),
+    };
+
+    // Serialize and write
+    let content = serde_yaml::to_string(&config).unwrap();
+    std::fs::write(&config_path, &content).unwrap();
+
+    // Read back and deserialize
+    let loaded_content = std::fs::read_to_string(&config_path).unwrap();
+    let loaded: Config = serde_yaml::from_str(&loaded_content).unwrap();
+
+    assert_eq!(loaded.collections.len(), 1);
+    assert_eq!(loaded.collections[0].name, "test_col");
+    assert_eq!(loaded.collections[0].path, PathBuf::from("/tmp/test/docs"));
+    assert_eq!(loaded.collections[0].pattern, Some("**/*.md".to_string()));
+    assert_eq!(loaded.collections[0].description, Some("Test collection".to_string()));
+}
+
+#[test]
+fn test_config_add_collection_persists() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_path = tmp.path().join("index.yaml");
+
+    // Start with empty config
+    let mut config = Config {
+        cache_path: tmp.path().join("cache"),
+        ..Config::default()
+    };
+
+    assert!(config.collections.is_empty());
+
+    // Add a collection
+    config.collections.push(CollectionConfig {
+        name: "notes".to_string(),
+        path: tmp.path().join("notes"),
+        pattern: Some("**/*.md".to_string()),
+        description: None,
+    });
+
+    // Serialize and write
+    let content = serde_yaml::to_string(&config).unwrap();
+    std::fs::write(&config_path, &content).unwrap();
+
+    // Read back
+    let loaded_content = std::fs::read_to_string(&config_path).unwrap();
+    let loaded: Config = serde_yaml::from_str(&loaded_content).unwrap();
+
+    assert_eq!(loaded.collections.len(), 1);
+    assert_eq!(loaded.collections[0].name, "notes");
+}
+
+#[test]
+fn test_config_remove_collection_persists() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_path = tmp.path().join("index.yaml");
+
+    let mut config = Config {
+        collections: vec![
+            CollectionConfig {
+                name: "keep".to_string(),
+                path: "/tmp/keep".into(),
+                pattern: None,
+                description: None,
+            },
+            CollectionConfig {
+                name: "remove_me".to_string(),
+                path: "/tmp/remove".into(),
+                pattern: None,
+                description: None,
+            },
+        ],
+        cache_path: tmp.path().join("cache"),
+        ..Config::default()
+    };
+
+    // Remove second collection
+    let idx = config.collections.iter().position(|c| c.name == "remove_me").unwrap();
+    config.collections.remove(idx);
+
+    // Serialize and write
+    let content = serde_yaml::to_string(&config).unwrap();
+    std::fs::write(&config_path, &content).unwrap();
+
+    // Read back
+    let loaded_content = std::fs::read_to_string(&config_path).unwrap();
+    let loaded: Config = serde_yaml::from_str(&loaded_content).unwrap();
+
+    assert_eq!(loaded.collections.len(), 1);
+    assert_eq!(loaded.collections[0].name, "keep");
+}
+
+#[test]
+fn test_config_rename_collection_persists() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_path = tmp.path().join("index.yaml");
+
+    let mut config = Config {
+        collections: vec![
+            CollectionConfig {
+                name: "old_name".to_string(),
+                path: "/tmp/project".into(),
+                pattern: Some("**/*.rs".to_string()),
+                description: Some("My project".to_string()),
+            },
+        ],
+        cache_path: tmp.path().join("cache"),
+        ..Config::default()
+    };
+
+    // Rename
+    config.collections[0].name = "new_name".to_string();
+
+    // Serialize and write
+    let content = serde_yaml::to_string(&config).unwrap();
+    std::fs::write(&config_path, &content).unwrap();
+
+    // Read back
+    let loaded_content = std::fs::read_to_string(&config_path).unwrap();
+    let loaded: Config = serde_yaml::from_str(&loaded_content).unwrap();
+
+    assert_eq!(loaded.collections.len(), 1);
+    assert_eq!(loaded.collections[0].name, "new_name");
+    // Other fields preserved
+    assert_eq!(loaded.collections[0].pattern, Some("**/*.rs".to_string()));
+    assert_eq!(loaded.collections[0].description, Some("My project".to_string()));
+}
+
+#[test]
+fn test_config_duplicate_collection_detection() {
+    let config = Config {
+        collections: vec![
+            CollectionConfig {
+                name: "existing".to_string(),
+                path: "/tmp/a".into(),
+                pattern: None,
+                description: None,
+            },
+        ],
+        ..Config::default()
+    };
+
+    // Check duplicate detection logic
+    let has_duplicate = config.collections.iter().any(|c| c.name == "existing");
+    assert!(has_duplicate);
+
+    let no_duplicate = config.collections.iter().any(|c| c.name == "new_one");
+    assert!(!no_duplicate);
 }

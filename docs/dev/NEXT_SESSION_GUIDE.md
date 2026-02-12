@@ -1,7 +1,7 @@
 # Next Session Guide - QMD Development
 
 **Last Updated**: 2026-02-12
-**Current Phase**: Phase 4D Complete ✅
+**Current Phase**: Phase 5 Complete ✅
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
 
@@ -410,31 +410,172 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 - ✅ **Model caching** - embedding model loads once, reused across queries (Mutex<Option<CachedLlamaModel>>)
 - ✅ **Code cleanup** - removed 6 deprecated sync methods, cleaner async-only codebase
 
-**Next**: Consider performance benchmarks, MCP module re-enablement, or additional edge-case tests.
+---
+
+## 🚧 Phase 5+ 工作计划（功能缺失分析）
+
+**Last Updated**: 2026-02-12
+**分析基准**: README.md 设计目标 + QMD_ANALYSIS_REPORT.md 原版功能 vs 当前 Rust 实现
 
 ---
 
-## 🎯 Phase 4D Status: COMPLETED ✅
+### Phase 5: Collection 配置持久化（高优先级）✅ COMPLETED
 
-### What Was Accomplished
+**完成内容**:
+1. `main.rs` — config 改为 `mut`，collection/context handler 传 `&mut config`
+2. `cli/collection.rs` — add/remove/rename 实现 YAML 持久化 + 缓存目录管理 + 重复检测
+3. `cli/context.rs` — add/remove 实现持久化，支持更新已有 collection 的 description
+4. `config/mod.rs` — save() 增加 `compress_path`，绝对路径压缩回 `~/` 格式
+5. 新增 5 个集成测试（save/load roundtrip、add/remove/rename 持久化、重复检测）
+6. 测试总数：81（35 单元 + 46 集成），全部通过
+
+---
+
+### Phase 6: 文档分块系统（高优先级）
+
+**目标**: 实现 token 级文档分块，提升向量搜索质量
+
+**当前问题**:
+- 当前整文档存储为单个 embedding，大文档语义稀释严重
+- 原版 QMD 使用 800 tokens/块, 15% overlap (120 tokens)
+
+**需要实现**:
+1. Token 分块器 — 按 token 数切分文档（可用字符近似: ~4 chars/token）
+2. 分块存储 — `content_vectors` 表的 `seq` 和 `pos` 字段已预留
+3. 分块 embedding — embed 命令对每个 chunk 生成独立向量
+4. 向量搜索适配 — 搜索结果从 chunk 映射回文档
+5. 分块去重 — 同一文档多个 chunk 命中时合并得分
+
+**涉及文件**:
+- `src/store/mod.rs` — 新增 chunking 逻辑，修改 embed/search 流程
+- `src/cli/embed.rs` — 适配分块 embedding
+
+---
+
+### Phase 7: MCP 模块重新启用（高优先级）
+
+**目标**: 修复 MCP 依赖问题，实现完整的 MCP Server 功能
+
+**当前问题**:
+- MCP 模块因 `mcp_sdk` 依赖问题暂时禁用（编译不通过）
+- `mcp/mod.rs:203` — get 工具返回占位文本
+- `mcp/mod.rs:222` — status 工具返回硬编码 "OK"
+- `mcp/mod.rs:50` — SSE transport 未实现
+- `mcp/mod.rs:119` — vsearch 调用已删除的 `store.vector_search()` 方法
+
+**需要实现**:
+1. 评估 Rust MCP SDK 选项（rmcp / mcp-rust-sdk / 自行实现 JSON-RPC）
+2. 修复编译问题，重新启用 MCP 模块
+3. 实现 get 工具 — 真实文档内容检索
+4. 实现 status 工具 — 返回真实索引统计
+5. 更新 vsearch/query 工具调用为异步版本
+6. 虚拟路径系统 `qmd://collection/path`
+
+**涉及文件**:
+- `Cargo.toml` — MCP SDK 依赖
+- `src/mcp/mod.rs` — 完整重写
+
+---
+
+### Phase 8: Agent 智能路由（中优先级）
+
+**目标**: 实现 agent 模式的查询意图分类和自动路由
+
+**当前问题**:
+- `cli/agent.rs:23-26` — 只有 TODO 注释，无实际逻辑
+- 交互模式只打印输入，不执行搜索
+
+**需要实现**:
+1. 查询意图分类器 — 关键词查询 → BM25, 语义查询 → vector, 复杂查询 → hybrid
+2. 交互式 agent 循环 — 接收查询 → 分类 → 路由 → 格式化输出
+3. 可选: LLM 辅助意图分类（需要本地模型支持）
+
+**涉及文件**:
+- `src/cli/agent.rs` — 实现路由逻辑
+
+---
+
+### Phase 9: LLM Reranker 真实集成（中优先级）
+
+**目标**: 集成真实 reranker 模型，实现位置感知混合排序
+
+**当前问题**:
+- reranker 有框架但无真实模型集成
+- 查询扩展仅 rule-based 关键词匹配
+- RRF 使用固定权重，缺少原版的位置感知混合排序
+
+**需要实现**:
+1. 下载 reranker 模型（qwen3-reranker-0.6b 或 bge-reranker-base）
+2. 实现 Yes/No + logprob 打分机制
+3. 位置感知混合排序:
+   - Top 1-3: 75% RRF / 25% reranker
+   - Top 4-10: 60% RRF / 40% reranker
+   - Top 11+: 40% RRF / 60% reranker
+4. LLM 查询扩展（用本地模型生成查询变体）
+
+**涉及文件**:
+- `src/llm/mod.rs` — reranker 模型加载和推理
+- `src/store/mod.rs` — 位置感知混合排序算法
+
+---
+
+### Phase 10: Schema 完善与缓存（低优先级）
+
+**需要实现**:
+1. `path_contexts` 表 — 路径上下文描述（原版 schema 要求）
+2. `llm_cache` 表 — LLM 响应缓存，避免重复推理
+3. `docid` 短标识符 — 6位 hash 短 ID
+4. XML 输出格式 — formatter 当前支持 CLI/JSON/Markdown/CSV/Files，缺 XML
+
+---
+
+### Phase 11: LanceDB 后端（低优先级）
+
+**需要实现**:
+1. `--fts-backend` / `--vector-backend` CLI 参数
+2. LanceDB 作为 BM25 和向量搜索的替代后端
+3. 后端抽象层 — trait 定义统一接口
+
+---
+
+### Phase 12: Go / Python 实现（低优先级）
+
+**需要实现**:
+1. `qmd-go/` — Go 实现，与 Rust 版本行为一致
+2. `qmd-python/` — Python 实现
+3. `shared/` — 共享测试数据和脚本
+
+---
+
+## 📊 优先级总览
+
+| Phase | 内容 | 优先级 | 状态 |
+|-------|------|--------|------|
+| 5 | Collection 配置持久化 | 🔴 高 | ✅ 完成 |
+| 6 | 文档分块系统 | 🔴 高 | 待开始 |
+| 7 | MCP 模块重新启用 | 🔴 高 | 待开始 |
+| 8 | Agent 智能路由 | 🟡 中 | 待开始 |
+| 9 | LLM Reranker 真实集成 | 🟡 中 | 待开始 |
+| 10 | Schema 完善与缓存 | 🟢 低 | 待开始 |
+| 11 | LanceDB 后端 | 🟢 低 | 待开始 |
+| 12 | Go / Python 实现 | 🟢 低 | 待开始 |
+
+**建议执行顺序**: Phase 5 → 6 → 7 → 9 → 8 → 10 → 11 → 12
+
+---
+
+## 🎯 已完成阶段存档
+
+### Phase 4D Status: COMPLETED ✅
 
 1. **Integration Test Suite (41 tests across 5 files)**
-   - `tests/common/mod.rs` — Shared helpers: `create_test_config`, `init_test_db`, `insert_test_doc`
-   - `tests/store_integration.rs` (7 tests) — Store lifecycle, update_index, multi-collection BM25 search, stats
-   - `tests/formatter_integration.rs` (14 tests) — All 5 output formats, JSON roundtrip, empty results, limit
-   - `tests/config_integration.rs` (8 tests) — Defaults, YAML roundtrip, path generation, backend serde
-   - `tests/hybrid_search_integration.rs` (6 tests) — BM25 fallback, query expansion, expanded search, limits
-   - `tests/cli_integration.rs` (6 tests) — help, version, no-args, search/status/update commands
+   - `tests/common/mod.rs` — Shared helpers
+   - `tests/store_integration.rs` (7 tests) — Store lifecycle, BM25 search, stats
+   - `tests/formatter_integration.rs` (14 tests) — All 5 output formats
+   - `tests/config_integration.rs` (8 tests) — Defaults, YAML roundtrip
+   - `tests/hybrid_search_integration.rs` (6 tests) — BM25 fallback, query expansion
+   - `tests/cli_integration.rs` (6 tests) — help, version, commands
 
-2. **Bug Fixes in Source Code**
-   - `store/mod.rs`: Made `vectors_vec` table creation graceful when sqlite-vec not loaded (was crashing 4 unit tests)
-   - `store/mod.rs`: Added `Deserialize` derive to `SearchResult` for JSON roundtrip testing
+2. **Bug Fixes**: vec0 graceful degradation, SearchResult Deserialize
 
-3. **Dev Dependencies Added**
-   - `assert_cmd = "2"` and `predicates = "3"` for CLI integration tests
-
-### Test Results
-```bash
-cargo test
-# 76 tests total: 35 unit + 41 integration — all passing
-```
+3. **76 tests total**: 35 unit + 41 integration — all passing

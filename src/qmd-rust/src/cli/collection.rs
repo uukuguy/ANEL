@@ -6,7 +6,7 @@ use std::path::PathBuf;
 /// Handle collection commands
 pub fn handle(
     cmd: &crate::cli::CollectionArgs,
-    config: &Config,
+    config: &mut Config,
 ) -> Result<()> {
     match &cmd.command {
         CollectionCommands::Add(args) => add_collection(args, config),
@@ -17,7 +17,7 @@ pub fn handle(
 }
 
 /// Add a new collection
-fn add_collection(args: &CollectionAddArgs, _config: &Config) -> Result<()> {
+fn add_collection(args: &CollectionAddArgs, config: &mut Config) -> Result<()> {
     let name = args.name.clone().unwrap_or_else(|| {
         PathBuf::from(&args.path)
             .file_name()
@@ -32,19 +32,30 @@ fn add_collection(args: &CollectionAddArgs, _config: &Config) -> Result<()> {
         anyhow::bail!("Path exists but is not a directory: {}", args.path);
     }
 
+    // Check for duplicate name
+    if config.collections.iter().any(|c| c.name == name) {
+        anyhow::bail!("Collection '{}' already exists", name);
+    }
+
     let collection = CollectionConfig {
         name: name.clone(),
-        path,
+        path: path.clone(),
         pattern: Some(args.mask.clone()),
         description: args.description.clone(),
     };
 
-    // TODO: Create index database for collection
+    config.collections.push(collection);
+    config.save()?;
+
+    // Create cache directory for the collection
+    let cache_dir = config.cache_dir_for(&name);
+    std::fs::create_dir_all(&cache_dir)?;
 
     println!("Collection '{}' added successfully", name);
-    println!("  Path: {}", collection.path.display());
-    if let Some(pattern) = &collection.pattern {
-        println!("  Pattern: {}", pattern);
+    println!("  Path: {}", path.display());
+    println!("  Pattern: {}", args.mask);
+    if let Some(desc) = &args.description {
+        println!("  Description: {}", desc);
     }
 
     Ok(())
@@ -58,55 +69,76 @@ fn list_collections(config: &Config) -> Result<()> {
     }
 
     println!("Collections:");
-    println!("{:<30} {:<40} Description", "Name", "Path");
-    println!("{}", "-".repeat(90));
+    println!("{:<20} {:<40} {:<15} Description", "Name", "Path", "Pattern");
+    println!("{}", "-".repeat(95));
 
     for collection in &config.collections {
         let path_str = collection.path.display().to_string();
+        let pattern = collection.pattern.as_deref().unwrap_or("**/*");
         let desc = collection.description.as_deref().unwrap_or("");
-        println!("{:<30} {:<40} {}", collection.name, path_str, desc);
+        println!("{:<20} {:<40} {:<15} {}", collection.name, path_str, pattern, desc);
     }
 
     Ok(())
 }
 
 /// Remove a collection
-fn remove_collection(args: &CollectionRemoveArgs, config: &Config) -> Result<()> {
+fn remove_collection(args: &CollectionRemoveArgs, config: &mut Config) -> Result<()> {
     let name = &args.name;
 
-    // Check if collection exists
-    let exists = config.collections.iter().any(|c| c.name == *name);
-    if !exists {
-        anyhow::bail!("Collection not found: {}", name);
+    let idx = config.collections.iter().position(|c| c.name == *name);
+    match idx {
+        Some(i) => {
+            config.collections.remove(i);
+            config.save()?;
+
+            // Remove cached index database
+            let cache_dir = config.cache_dir_for(name);
+            if cache_dir.exists() {
+                std::fs::remove_dir_all(&cache_dir)?;
+                println!("Removed cache directory: {}", cache_dir.display());
+            }
+
+            println!("Collection '{}' removed successfully", name);
+        }
+        None => {
+            anyhow::bail!("Collection not found: {}", name);
+        }
     }
-
-    // TODO: Remove index database and cached files
-
-    println!("Collection '{}' removed successfully", name);
 
     Ok(())
 }
 
 /// Rename a collection
-fn rename_collection(args: &CollectionRenameArgs, config: &Config) -> Result<()> {
+fn rename_collection(args: &CollectionRenameArgs, config: &mut Config) -> Result<()> {
     let old_name = &args.old_name;
     let new_name = &args.new_name;
 
-    // Check if old collection exists
-    let exists = config.collections.iter().any(|c| c.name == *old_name);
-    if !exists {
-        anyhow::bail!("Collection not found: {}", old_name);
-    }
-
     // Check if new name already exists
-    let name_exists = config.collections.iter().any(|c| c.name == *new_name);
-    if name_exists {
+    if config.collections.iter().any(|c| c.name == *new_name) {
         anyhow::bail!("Collection name already exists: {}", new_name);
     }
 
-    // TODO: Rename index database
+    let idx = config.collections.iter().position(|c| c.name == *old_name);
+    match idx {
+        Some(i) => {
+            config.collections[i].name = new_name.clone();
+            config.save()?;
 
-    println!("Collection '{}' renamed to '{}'", old_name, new_name);
+            // Rename cache directory
+            let old_cache = config.cache_dir_for(old_name);
+            let new_cache = config.cache_dir_for(new_name);
+            if old_cache.exists() {
+                std::fs::rename(&old_cache, &new_cache)?;
+                println!("Renamed cache directory: {} -> {}", old_cache.display(), new_cache.display());
+            }
+
+            println!("Collection '{}' renamed to '{}'", old_name, new_name);
+        }
+        None => {
+            anyhow::bail!("Collection not found: {}", old_name);
+        }
+    }
 
     Ok(())
 }

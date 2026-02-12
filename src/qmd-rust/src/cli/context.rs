@@ -6,7 +6,7 @@ use std::path::PathBuf;
 /// Handle context commands
 pub fn handle(
     cmd: &crate::cli::ContextArgs,
-    config: &Config,
+    config: &mut Config,
 ) -> Result<()> {
     match &cmd.command {
         ContextCommands::Add(args) => add_context(args, config),
@@ -16,7 +16,7 @@ pub fn handle(
 }
 
 /// Add a context (path with description for relevance)
-fn add_context(args: &ContextAddArgs, _config: &Config) -> Result<()> {
+fn add_context(args: &ContextAddArgs, config: &mut Config) -> Result<()> {
     let path = match &args.path {
         Some(p) => shellexpand::tilde(p).parse::<PathBuf>()?,
         None => std::env::current_dir()?,
@@ -26,9 +26,35 @@ fn add_context(args: &ContextAddArgs, _config: &Config) -> Result<()> {
         anyhow::bail!("Path does not exist: {}", path.display());
     }
 
-    // TODO: Save context to configuration
+    // Check if this path already has a context description
+    let existing = config.collections.iter().position(|c| c.path == path);
+    match existing {
+        Some(i) => {
+            // Update existing collection's description
+            config.collections[i].description = Some(args.description.clone());
+            config.save()?;
+            println!("Context updated:");
+        }
+        None => {
+            // Add as a new collection with the path as name
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
 
-    println!("Context added:");
+            let collection = crate::config::CollectionConfig {
+                name,
+                path: path.clone(),
+                pattern: Some("**/*".to_string()),
+                description: Some(args.description.clone()),
+            };
+            config.collections.push(collection);
+            config.save()?;
+            println!("Context added:");
+        }
+    }
+
     println!("  Path: {}", path.display());
     println!("  Description: {}", args.description);
 
@@ -37,27 +63,45 @@ fn add_context(args: &ContextAddArgs, _config: &Config) -> Result<()> {
 
 /// List all contexts
 fn list_contexts(config: &Config) -> Result<()> {
-    println!("Contexts:");
+    let contexts: Vec<_> = config
+        .collections
+        .iter()
+        .filter(|c| c.description.is_some())
+        .collect();
 
-    if config.collections.is_empty() {
-        println!("  No contexts configured");
+    if contexts.is_empty() {
+        println!("No contexts configured");
         return Ok(());
     }
 
-    for collection in &config.collections {
-        if let Some(desc) = &collection.description {
-            println!("  {}: {}", collection.name, desc);
-        }
+    println!("Contexts:");
+    for collection in contexts {
+        println!(
+            "  {} — {}",
+            collection.path.display(),
+            collection.description.as_deref().unwrap_or("")
+        );
     }
 
     Ok(())
 }
 
 /// Remove a context
-fn remove_context(args: &ContextRemoveArgs, _config: &Config) -> Result<()> {
-    let path = &args.path;
+fn remove_context(args: &ContextRemoveArgs, config: &mut Config) -> Result<()> {
+    let path = shellexpand::tilde(&args.path).parse::<PathBuf>()?;
 
-    println!("Context '{}' removed", path);
+    let idx = config.collections.iter().position(|c| c.path == path);
+    match idx {
+        Some(i) => {
+            // Clear description rather than removing the collection entirely
+            config.collections[i].description = None;
+            config.save()?;
+            println!("Context removed for: {}", path.display());
+        }
+        None => {
+            anyhow::bail!("No context found for path: {}", path.display());
+        }
+    }
 
     Ok(())
 }
