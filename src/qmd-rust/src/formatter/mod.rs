@@ -54,13 +54,16 @@ impl Format {
     fn format_json(&self, results: &[SearchResult]) -> Result<(), anyhow::Error> {
         #[derive(Serialize)]
         struct JsonResult {
-            query: String,
+            query: Option<String>,
             total: usize,
             results: Vec<SearchResult>,
         }
 
+        // Extract query from first result if available
+        let query = results.first().and_then(|r| r.query.clone());
+
         let output = JsonResult {
-            query: String::new(), // TODO: Add query to SearchResult
+            query,
             total: results.len(),
             results: results.to_vec(),
         };

@@ -117,13 +117,16 @@ fn vector_search_in_db(
         .collect();
 
     for (hash, path, title, collection, distance) in rows {
+        let docid = crate::store::make_docid(&collection, &path);
         results.push(SearchResult {
+            docid,
             path,
             collection,
             score: (1.0 - distance as f32).max(0.0), // Convert distance to similarity score
             lines: 0,
             title,
             hash,
+            query: None,
         });
     }
 

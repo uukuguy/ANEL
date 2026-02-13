@@ -23,6 +23,7 @@ pub struct SearchResult {
     pub lines: usize,
     pub title: String,
     pub hash: String,
+    pub query: Option<String>,
 }
 
 /// Generate a stable document ID from collection and path
@@ -342,14 +343,19 @@ impl Store {
 
                 for (rowid, score, title, filepath) in rows {
                     let docid = make_docid(collection, &filepath);
+                    // Calculate line count by reading the file
+                    let lines = std::fs::read_to_string(&filepath)
+                        .map(|content| content.lines().count())
+                        .unwrap_or(0);
                     results.push(SearchResult {
                         docid,
                         path: filepath,
                         collection: collection.to_string(),
                         score: score as f32,
-                        lines: 0, // TODO: Calculate line count
+                        lines,
                         title,
                         hash: rowid.to_string(),
+                        query: Some(query.to_string()),
                     });
                 }
             }
@@ -548,14 +554,19 @@ impl Store {
 
         for (hash, path, title, collection, distance) in rows {
             let docid = make_docid(&collection, &path);
+            // Calculate line count
+            let lines = std::fs::read_to_string(&path)
+                .map(|content| content.lines().count())
+                .unwrap_or(0);
             results.push(SearchResult {
                 docid,
                 path,
                 collection,
                 score: distance as f32,
-                lines: 0,
+                lines,
                 title,
                 hash,
+                query: None,
             });
         }
 
@@ -727,6 +738,7 @@ impl Store {
                 lines: data.2,
                 title: data.3,
                 hash: data.4,
+                query: None,
             }
         }).collect()
     }
@@ -994,15 +1006,43 @@ impl Store {
         Ok(stats)
     }
 
-    /// Find stale entries
+    /// Find stale entries - files that no longer exist on disk
     pub fn find_stale_entries(&self, _older_than: u32) -> Result<Vec<String>> {
-        // TODO: Check for files that no longer exist
-        Ok(Vec::new())
+        let mut stale_paths = Vec::new();
+
+        for collection in &self.config.collections {
+            if let Ok(conn) = self.get_connection(&collection.name) {
+                let mut stmt = conn.prepare("SELECT path FROM documents WHERE active = 1")?;
+                let paths: Vec<String> = stmt
+                    .query_map([], |row| row.get(0))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+
+                for path in paths {
+                    // Check if file exists
+                    if !std::path::Path::new(&path).exists() {
+                        stale_paths.push(path);
+                    }
+                }
+            }
+        }
+
+        Ok(stale_paths)
     }
 
-    /// Remove stale entries
-    pub fn remove_stale_entries(&self, _entries: &[String]) -> Result<()> {
-        // TODO: Remove stale entries from database
+    /// Remove stale entries from database
+    pub fn remove_stale_entries(&self, entries: &[String]) -> Result<()> {
+        for collection in &self.config.collections {
+            if let Ok(conn) = self.get_connection(&collection.name) {
+                for path in entries {
+                    // Soft delete - mark as inactive
+                    conn.execute(
+                        "UPDATE documents SET active = 0 WHERE path = ?",
+                        [path],
+                    )?;
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -1030,6 +1070,7 @@ mod tests {
             lines: 0,
             title: path.to_string(),
             hash: format!("hash_{}", path),
+            query: None,
         }
     }
 
@@ -1155,6 +1196,7 @@ mod tests {
             lines: 42,
             title: "Test Document".to_string(),
             hash: "abc123".to_string(),
+            query: None,
         }];
         let result = Store::rrf_fusion(&[list], None, 60);
 

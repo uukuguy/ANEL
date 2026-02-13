@@ -11,6 +11,7 @@ fn make_results() -> Vec<SearchResult> {
             lines: 120,
             title: "Main Entry".to_string(),
             hash: "abc123".to_string(),
+            query: Some("test query".to_string()),
         },
         SearchResult {
             docid: "project:src/lib.rs".to_string(),
@@ -20,6 +21,7 @@ fn make_results() -> Vec<SearchResult> {
             lines: 45,
             title: "Library".to_string(),
             hash: "def456".to_string(),
+            query: Some("test query".to_string()),
         },
     ]
 }

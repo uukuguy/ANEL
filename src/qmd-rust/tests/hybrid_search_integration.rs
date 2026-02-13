@@ -235,5 +235,6 @@ fn make_result(path: &str, collection: &str, score: f32) -> SearchResult {
         lines: 0,
         title: path.to_string(),
         hash: format!("hash_{}", path),
+        query: None,
     }
 }

@@ -1,7 +1,7 @@
 # Next Session Guide - QMD Development
 
 **Last Updated**: 2026-02-13
-**Current Phase**: Phase 12 Complete ✅
+**Current Phase**: Phase 12 Complete ✅ (扫地完成)
 **Project Status**: ALL PHASES COMPLETED 🎉
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
@@ -631,6 +631,32 @@ cd qmd-python && pip install -e .  # ✅ 成功
 | 12 | Go / Python 实现 | 🟢 低 | ✅ 完成 |
 
 **QMD项目已完成所有12个Phase！** 🎉
+
+---
+
+## 🧹 扫地工作完成 (2026-02-13)
+
+本次工作完善了以下内容：
+
+### Rust 版本改进
+1. **SearchResult 新增 query 字段** - 用于追踪搜索查询
+2. **文档行数计算** - BM25 和向量搜索时自动计算并返回
+3. **过期文件清理** - 实现 `find_stale_entries()` 和 `remove_stale_entries()`
+4. **JSON 格式化器更新** - 使用 query 字段
+
+### 测试结果
+- 所有 **169 个测试** 全部通过 ✅
+
+### 多语言实现状态
+| 版本 | 状态 |
+|------|------|
+| Rust (qmd-rust) | 169 测试通过，功能完善 |
+| Go (qmd-go) | 编译成功 |
+| Python (qmd-python) | 已安装可用 |
+
+### 剩余 Stub TODO (可选增强)
+- `src/qmd-python/` - 旧版参考实现
+- LLM 集成 - 需要外部 llama-cli 支持
 
 ---
 
