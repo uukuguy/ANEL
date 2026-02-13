@@ -142,7 +142,37 @@ def vsearch_cmd(
     vector_backend: str = typer.Option("qmd_builtin", "--vector-backend", help="Vector backend"),
 ) -> None:
     """Vector semantic search."""
-    print(f"Vector search: {query}")
+    from ..config import Config
+    from ..store import Store, SearchOptions
+    from ..llm import Router
+    import asyncio
+
+    config = Config.load()
+
+    # Override vector backend if specified
+    if vector_backend != "qmd_builtin":
+        config.vector.backend = vector_backend
+
+    store = Store(config)
+    options = SearchOptions(
+        limit=limit,
+        collection=collection,
+        search_all=all_collections,
+    )
+
+    # Try to get LLM for embedding
+    llm = None
+    try:
+        if config.models.embed:
+            llm = Router(config)
+    except Exception as e:
+        print(f"Warning: LLM not available: {e}")
+
+    results = store.vector_search(query, options, llm)
+
+    for r in results:
+        print(f"[{r.score:.3f}] {r.path}")
+        print(f"    Title: {r.title}")
 
 
 @app.command("query")
@@ -163,7 +193,36 @@ def embed_cmd(
     collection: Optional[str] = typer.Option(None, "-c", "--collection", help="Collection"),
 ) -> None:
     """Generate/update embeddings."""
-    print("Generating embeddings...")
+    from ..config import Config
+    from ..store import Store, SearchOptions
+    from ..llm import Router
+    from pathlib import Path
+    import asyncio
+
+    config = Config.load()
+    store = Store(config)
+
+    # Get LLM router
+    llm = None
+    try:
+        llm = Router(config)
+    except Exception as e:
+        print(f"Error: LLM not available: {e}")
+        print("Please install llama-cpp-python or configure remote embedding:")
+        print("  pip install qmd-python[local]")
+        return
+
+    # Determine collections to process
+    collections = [collection] if collection else [c.name for c in config.collections]
+
+    for col_name in collections:
+        print(f"Processing collection: {col_name}")
+        try:
+            # Embed collection
+            store.embed_collection(col_name, llm, force)
+            print(f"  Embeddings generated for {col_name}")
+        except Exception as e:
+            print(f"  Error: {e}")
 
 
 @app.command("update")

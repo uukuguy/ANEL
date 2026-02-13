@@ -1,7 +1,7 @@
 # Next Session Guide - QMD Development
 
 **Last Updated**: 2026-02-13
-**Current Phase**: Phase 13 Complete ✅
+**Current Phase**: Phase 14 Complete ✅
 **Project Status**: ALL PHASES COMPLETED 🎉
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
@@ -658,6 +658,59 @@ cd qmd-python && pip install -e .  # ✅ 成功
 
 ---
 
+## 🎯 Phase 14: Python/Go LLM 集成完善 ✅ COMPLETED (2026-02-13)
+
+### 完成的工作
+
+#### Python 实现
+1. **修复 Python 向量搜索**
+   - `_vector_search_qdrant()` 真正调用 QdrantBackend
+   - 添加 QdrantClient 懒加载
+   - 支持传入 LLM Router 生成 query embedding
+
+2. **实现 Python LLM Embedding**
+   - `_local_embed()` 使用 llama-cpp-python
+   - `_remote_embed()` 使用 OpenAI 兼容 API
+   - 自动检测并加载本地 GGUF 模型
+
+3. **实现 Python LLM Reranking**
+   - `_local_rerank()` 本地重排序
+   - `_remote_rerank()` 支持 Cohere API 或 embedding 相似度
+
+4. **更新 CLI 命令**
+   - `embed` 命令：生成 embeddings 并 upsert 到 Qdrant
+   - `vsearch` 命令：调用向量搜索
+
+#### Go 实现
+5. **实现 Go LLM Router**
+   - `llamaServerEmbed()` 调用 llama-server HTTP API (`http://localhost:8080/embedding`)
+   - `remoteEmbed()` 使用 OpenAI 兼容 API
+   - `localRerank()` 和 `remoteRerank()` 重排序
+
+6. **更新 Go Store**
+   - `VectorSearchQdrant()` 真正调用 embedding + Qdrant 搜索
+   - `VectorSearchSQLite()` 使用 embedding + sqlite-vec
+
+### 修改的文件
+- `src/qmd-python/src/store/mod.py` - 向量搜索实现
+- `src/qmd-python/src/llm/router.py` - LLM 路由
+- `src/qmd-python/src/cli/commands.py` - CLI 命令
+- `src/qmd-python/pyproject.toml` - 依赖
+- `src/qmd-go/internal/llm/router.go` - Go LLM 路由
+- `src/qmd-go/internal/store/store.go` - Store 集成
+- `src/qmd-go/internal/store/qdrant.go` - Qdrant 搜索
+
+### 构建状态
+```bash
+# Python
+cd src/qmd-python && python -m py_compile src/store/mod.py src/llm/router.py  # ✅
+
+# Go
+cd src/qmd-go && go build ./...  # ✅
+```
+
+---
+
 ## 📊 优先级总览
 
 | Phase | 内容 | 优先级 | 状态 |
@@ -671,8 +724,9 @@ cd qmd-python && pip install -e .  # ✅ 成功
 | 11 | LanceDB 后端 | 🟢 低 | ✅ 完成（占位） |
 | 12 | Go / Python 实现 | 🟢 低 | ✅ 完成 |
 | 13 | Qdrant 向量后端 | 🟢 低 | ✅ 完成 |
+| 14 | Python/Go LLM 集成 | 🟢 低 | ✅ 完成 |
 
-**QMD项目已完成所有13个Phase！** 🎉
+**QMD项目已完成所有14个Phase！** 🎉
 
 ---
 

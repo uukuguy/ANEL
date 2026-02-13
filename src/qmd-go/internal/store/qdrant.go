@@ -71,9 +71,73 @@ func (b *QdrantBackend) ensureCollection() error {
 
 // VectorSearchQdrant performs vector search using Qdrant
 func (s *Store) VectorSearchQdrant(query string, options SearchOptions) ([]SearchResult, error) {
-	// TODO: Generate embedding for query using LLM
-	// For now, return empty results
-	return []SearchResult{}, nil
+	ctx := context.Background()
+
+	// Check if Qdrant backend is available
+	if s.qdrant == nil {
+		return []SearchResult{}, fmt.Errorf("Qdrant backend not available")
+	}
+
+	// Generate embedding for query
+	embeddingResult, err := s.llmRouter.Embed(ctx, []string{query})
+	if err != nil {
+		return []SearchResult{}, fmt.Errorf("failed to generate embedding: %w", err)
+	}
+
+	queryVector := embeddingResult.Embeddings[0]
+
+	// Search Qdrant
+	results, err := s.qdrant.Search(queryVector, uint64(options.Limit))
+	if err != nil {
+		return []SearchResult{}, err
+	}
+
+	// Convert to SearchResult
+	searchResults := make([]SearchResult, len(results))
+	for i, r := range results {
+		searchResults[i] = SearchResult{
+			Path:       r["path"].(string),
+			Collection: r["collection"].(string),
+			Score:      float32(r["score"].(float64)),
+			Lines:      0,
+			Title:      r["title"].(string),
+			Hash:       r["hash"].(string),
+		}
+	}
+
+	return searchResults, nil
+}
+
+// Search performs vector search using Qdrant backend
+func (b *QdrantBackend) Search(queryVector []float32, limit uint64) ([]map[string]interface{}, error) {
+	ctx := context.Background()
+
+	limitVal := limit
+
+	// Use Query API
+	searchResult, err := b.client.Query(ctx, &qdrant.QueryPoints{
+		CollectionName: b.collection,
+		Query:         qdrant.NewQuery(queryVector...),
+		Limit:         &limitVal,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]map[string]interface{}, len(searchResult))
+	for i, r := range searchResult {
+		results[i] = map[string]interface{}{
+			"id":         r.Id.GetNum(),
+			"score":      float64(r.Score),
+			"path":       r.Payload["path"].GetStringValue(),
+			"title":      r.Payload["title"].GetStringValue(),
+			"body":       r.Payload["body"].GetStringValue(),
+			"hash":       r.Payload["hash"].GetStringValue(),
+			"collection": r.Payload["collection"].GetStringValue(),
+		}
+	}
+
+	return results, nil
 }
 
 // UpsertVectors inserts vectors into Qdrant

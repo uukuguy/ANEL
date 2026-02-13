@@ -1,5 +1,69 @@
 # QMD 多语言实现 - 工作日志
 
+## 2026-02-13
+
+### 完成的工作
+
+#### Python 实现完善
+
+1. **修复 Python 向量搜索 (Phase 1)**
+   - 修改 `src/qmd-python/src/store/mod.py`
+   - 实现 `_vector_search_qdrant()` 真正调用 QdrantBackend
+   - 添加 QdrantClient 懒加载
+   - 添加 `_get_line_count()` 辅助方法
+
+2. **实现 Python LLM Embedding (Phase 2)**
+   - 修改 `src/qmd-python/src/llm/router.py`
+   - 实现 `_local_embed()` 使用 llama-cpp-python
+   - 实现 `_remote_embed()` 使用 OpenAI 兼容 API
+   - 添加 `_init_embedder()` 懒加载 GGUF 模型
+
+3. **实现 Python LLM Reranking (Phase 3)**
+   - 实现 `_local_rerank()` 本地重排序
+   - 实现 `_remote_rerank()` 远程重排序（Cohere API 或 embedding 相似度）
+   - 更新 `store/mod.py` 的 `_rerank()` 方法
+
+4. **更新 CLI 命令**
+   - 修改 `src/qmd-python/src/cli/commands.py`
+   - 实现 `embed` 命令真正生成 embeddings
+   - 实现 `vsearch` 命令调用向量搜索
+
+5. **更新依赖**
+   - 修改 `src/qmd-python/pyproject.toml`
+   - 添加 `llama-cpp-python` 作为可选依赖
+   - 添加 `httpx` 依赖
+
+#### Go 实现完善
+
+6. **实现 Go LLM Router (Phase 5)**
+   - 修改 `src/qmd-go/internal/llm/router.go`
+   - 实现 `llamaServerEmbed()` 调用 llama-server HTTP API
+   - 实现 `remoteEmbed()` 使用 OpenAI 兼容 API
+   - 实现 `llamaServerRerank()` 和 `remoteRerank()`
+
+7. **更新 Go Store**
+   - 修改 `src/qmd-go/internal/store/store.go`
+   - 添加 LLM Router 和 Qdrant Backend 到 Store 结构体
+   - 实现 `VectorSearchQdrant()` 真正调用 embedding + Qdrant 搜索
+   - 实现 `VectorSearchSQLite()` 使用 embedding + sqlite-vec
+
+8. **修复 Qdrant 客户端 API**
+   - 修改 `src/qmd-go/internal/store/qdrant.go`
+   - 使用正确的 `Query()` API 替代 `SearchPoints()`
+
+### 修改的文件
+
+| 文件 | 更改类型 |
+|------|----------|
+| src/qmd-python/src/store/mod.py | 修改 |
+| src/qmd-python/src/llm/router.py | 修改 |
+| src/qmd-python/src/cli/commands.py | 修改 |
+| src/qmd-python/pyproject.toml | 修改 |
+| src/qmd-go/internal/llm/router.go | 修改 |
+| src/qmd-go/internal/store/store.go | 修改 |
+| src/qmd-go/internal/store/qdrant.go | 修改 |
+| src/qmd-go/internal/mcp/server.go | 修复 |
+
 ## 2026-02-11
 
 ### 完成的工作

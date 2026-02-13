@@ -51,10 +51,25 @@ class Store:
         """Initialize store."""
         self.config = config
         self.connections: Dict[str, sqlite3.Connection] = {}
+        self._qdrant_backend = None
 
         # Initialize connections for each collection
         for collection in self.config.collections:
             self.get_connection(collection.name)
+
+    @property
+    def qdrant_backend(self):
+        """Lazy load Qdrant backend."""
+        if self._qdrant_backend is None:
+            from .qdrant_backend import QdrantBackend, QdrantConfig
+            qdrant_config = QdrantConfig(
+                url=self.config.vector.qdrant.url,
+                api_key=self.config.vector.qdrant.api_key,
+                collection=self.config.vector.qdrant.collection,
+                vector_size=self.config.vector.qdrant.vector_size,
+            )
+            self._qdrant_backend = QdrantBackend(qdrant_config)
+        return self._qdrant_backend
 
     def get_connection(self, collection: str) -> sqlite3.Connection:
         """Get database connection for a collection."""
@@ -167,16 +182,16 @@ class Store:
         return results
 
     def vector_search(
-        self, query: str, options: SearchOptions
+        self, query: str, options: SearchOptions, llm=None
     ) -> List[SearchResult]:
         """Vector semantic search."""
         # Dispatch based on backend configuration
         backend = self.config.vector.backend
 
         if backend == "qmd_builtin":
-            return self._vector_search_sqlite(query, options)
+            return self._vector_search_sqlite(query, options, llm)
         elif backend == "qdrant":
-            return self._vector_search_qdrant(query, options)
+            return self._vector_search_qdrant(query, options, llm)
         elif backend == "lancedb":
             return self._vector_search_lancedb(query, options)
         else:
@@ -184,20 +199,153 @@ class Store:
             return self.bm25_search(query, options)
 
     def _vector_search_sqlite(
-        self, query: str, options: SearchOptions
+        self, query: str, options: SearchOptions, llm=None
     ) -> List[SearchResult]:
         """Vector search using sqlite-vec."""
-        # TODO: Generate query embedding and search
-        # Placeholder: fall back to BM25
-        return self.bm25_search(query, options)
+        import asyncio
+        import json
+
+        # Generate query embedding
+        query_vector = None
+
+        if llm is not None:
+            try:
+                if asyncio.iscoroutinefunction(llm.embed):
+                    result = asyncio.run(llm.embed([query]))
+                else:
+                    result = llm.embed([query])
+                query_vector = result.embeddings[0]
+            except Exception as e:
+                print(f"Failed to generate embedding: {e}")
+
+        if query_vector is None:
+            # Fall back to BM25 if embedding fails
+            return self.bm25_search(query, options)
+
+        # Search using sqlite-vec
+        results = []
+        collections = self._get_collections(options)
+
+        for collection in collections:
+            conn = self.get_connection(collection)
+
+            try:
+                # Convert vector to JSON for sqlite-vec
+                vector_json = json.dumps(query_vector)
+
+                cursor = conn.execute("""
+                    SELECT
+                        v.hash_seq,
+                        v.embedding,
+                        d.title,
+                        d.path,
+                        d.hash,
+                        d.collection
+                    FROM vectors_vec v
+                    JOIN documents d ON v.hash_seq LIKE d.hash || '%'
+                    WHERE d.active = 1
+                    ORDER BY v.embedding <=> ?
+                    LIMIT ?
+                """, (vector_json, options.limit))
+
+                for row in cursor:
+                    # Get line count
+                    lines = self._get_line_count(row[4])
+
+                    results.append(SearchResult(
+                        path=f"{row[5]}/{row[3]}",
+                        collection=row[5],
+                        score=1.0 / (1.0 + row[1]),  # Convert distance to score
+                        lines=lines,
+                        title=row[2],
+                        hash=row[4],
+                    ))
+            except Exception as e:
+                # sqlite-vec may not be available, fall back to BM25
+                print(f"sqlite-vec search failed: {e}")
+
+        return results
 
     def _vector_search_qdrant(
-        self, query: str, options: SearchOptions
+        self, query: str, options: SearchOptions, llm=None
     ) -> List[SearchResult]:
         """Vector search using Qdrant."""
-        # TODO: Implement Qdrant backend
-        # Placeholder: fall back to BM25
-        return self.bm25_search(query, options)
+        import asyncio
+
+        # Generate query embedding
+        query_vector = None
+
+        if llm is not None:
+            # Use provided LLM for embedding
+            try:
+                # Check if llm has sync or async embed method
+                if hasattr(llm, 'embed'):
+                    # Try sync first
+                    try:
+                        result = llm.embed([query])
+                        query_vector = result.embeddings[0]
+                    except TypeError:
+                        # Try async
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            # If already in async context, create new loop
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                future = executor.submit(
+                                    asyncio.run, llm.embed([query])
+                                )
+                                result = future.result()
+                                query_vector = result.embeddings[0]
+                        else:
+                            result = loop.run_until_complete(llm.embed([query]))
+                            query_vector = result.embeddings[0]
+            except Exception as e:
+                print(f"Failed to generate embedding: {e}")
+
+        if query_vector is None:
+            # Fall back to BM25 if embedding fails
+            return self.bm25_search(query, options)
+
+        # Search Qdrant
+        try:
+            results = self.qdrant_backend.search(
+                query_vector=query_vector,
+                limit=options.limit,
+            )
+
+            # Convert to SearchResult
+            search_results = []
+            for r in results:
+                # Get line count from SQLite
+                lines = self._get_line_count(r["hash"])
+
+                search_results.append(SearchResult(
+                    path=r["path"],
+                    collection=r.get("collection", ""),
+                    score=r["score"],
+                    lines=lines,
+                    title=r.get("title", ""),
+                    hash=r.get("hash", ""),
+                ))
+
+            return search_results
+        except Exception as e:
+            print(f"Qdrant search failed: {e}")
+            return self.bm25_search(query, options)
+
+    def _get_line_count(self, hash_value: str) -> int:
+        """Get line count for a document by hash."""
+        # Query all collections for the document
+        for collection in self._get_collections(SearchOptions()):
+            conn = self.get_connection(collection)
+            cursor = conn.execute(
+                "SELECT doc FROM content WHERE hash = ?",
+                (hash_value,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return len(row[0].split('\n'))
+        return 0
 
     def _vector_search_lancedb(
         self, query: str, options: SearchOptions
@@ -249,8 +397,49 @@ class Store:
         self, query: str, candidates: List[SearchResult], llm
     ) -> List[SearchResult]:
         """Rerank candidates using LLM."""
-        # TODO: Implement LLM reranking
-        return candidates
+        import asyncio
+
+        if not candidates:
+            return candidates
+
+        # Get document content for reranking
+        docs = []
+        for result in candidates:
+            # Get content from SQLite
+            for collection in self._get_collections(SearchOptions()):
+                conn = self.get_connection(collection)
+                cursor = conn.execute(
+                    "SELECT doc FROM content WHERE hash = ?",
+                    (result.hash,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    docs.append(row[0][:1000])  # Limit content length
+                    break
+            else:
+                docs.append("")
+
+        # Get rerank scores from LLM
+        try:
+            if asyncio.iscoroutinefunction(llm.rerank):
+                scores = asyncio.run(llm.rerank(query, docs))
+            else:
+                scores = llm.rerank(query, docs)
+
+            # Reorder candidates by score
+            scored_candidates = list(zip(candidates, scores))
+            scored_candidates.sort(key=lambda x: x[1], reverse=True)
+
+            # Update scores
+            reranked = []
+            for result, score in scored_candidates:
+                result.score = score
+                reranked.append(result)
+
+            return reranked
+        except Exception as e:
+            print(f"Reranking failed: {e}")
+            return candidates
 
     def _rrf_fusion(
         self, result_lists: List[List[SearchResult]], weights: List[float] = None, k: int = 60
@@ -319,8 +508,115 @@ class Store:
 
     def embed_collection(self, collection: str, llm, force: bool = False) -> None:
         """Generate embeddings for a collection."""
-        # TODO: Implement embedding generation
-        pass
+        import asyncio
+        from datetime import datetime
+
+        conn = self.get_connection(collection)
+
+        # Get documents that need embedding
+        if force:
+            cursor = conn.execute(
+                "SELECT id, hash, title FROM documents WHERE active = 1",
+            )
+        else:
+            cursor = conn.execute("""
+                SELECT d.id, d.hash, d.title
+                FROM documents d
+                LEFT JOIN content_vectors cv ON d.hash = cv.hash
+                WHERE d.active = 1 AND cv.hash IS NULL
+            """)
+
+        documents = list(cursor.fetchall())
+
+        if not documents:
+            print(f"  No documents need embedding")
+            return
+
+        print(f"  Processing {len(documents)} documents...")
+
+        # Process documents in batches
+        batch_size = 10
+        for i in range(0, len(documents), batch_size):
+            batch = documents[i:i + batch_size]
+
+            # Get content for batch
+            docs_content = []
+            doc_hashes = [doc[1] for doc in batch]
+
+            for doc_hash in doc_hashes:
+                cursor = conn.execute(
+                    "SELECT doc FROM content WHERE hash = ?",
+                    (doc_hash,),
+                )
+                row = cursor.fetchone()
+                docs_content.append((doc_hash, row[0] if row else ""))
+
+            # Chunk and embed
+            all_chunks = []
+            chunk_metadata = []
+
+            for doc_hash, content in docs_content:
+                if not content:
+                    continue
+                # Simple chunking by paragraphs
+                chunks = content.split("\n\n")
+                for chunk_idx, chunk in enumerate(chunks):
+                    if len(chunk) < 10:
+                        continue
+                    all_chunks.append(chunk)
+                    chunk_metadata.append({
+                        "hash": doc_hash,
+                        "seq": chunk_idx,
+                        "pos": 0,
+                    })
+
+            if not all_chunks:
+                continue
+
+            # Generate embeddings
+            try:
+                if asyncio.iscoroutinefunction(llm.embed):
+                    result = asyncio.run(llm.embed(all_chunks))
+                else:
+                    result = llm.embed(all_chunks)
+
+                embeddings = result.embeddings
+
+                # Upsert to Qdrant if configured
+                if self.config.vector.backend == "qdrant":
+                    vectors_to_upsert = []
+                    for meta, emb in zip(chunk_metadata, embeddings):
+                        vectors_to_upsert.append({
+                            "id": int(meta["hash"], 36) if isinstance(meta["hash"], str) else meta["hash"],
+                            "vector": emb,
+                            "path": "",
+                            "title": "",
+                            "body": all_chunks[chunk_metadata.index(meta)],
+                            "hash": meta["hash"],
+                            "collection": collection,
+                        })
+
+                    self.qdrant_backend.upsert_vectors(vectors_to_upsert)
+
+                # Store in SQLite
+                now = datetime.now().isoformat()
+                for meta, emb in zip(chunk_metadata, embeddings):
+                    # Store embedding in content_vectors table
+                    # Note: sqlite-vec stores as binary blob
+                    import json
+                    emb_json = json.dumps(emb)
+
+                    conn.execute("""
+                        INSERT OR REPLACE INTO content_vectors (hash, seq, pos, model, embedded_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (meta["hash"], meta["seq"], meta["pos"], result.model, now))
+
+                conn.commit()
+
+            except Exception as e:
+                print(f"  Error generating embeddings: {e}")
+
+        print(f"  Done processing {len(documents)} documents")
 
     def embed_all_collections(self, llm, force: bool = False) -> None:
         """Generate embeddings for all collections."""

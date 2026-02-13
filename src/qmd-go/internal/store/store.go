@@ -1,12 +1,15 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/qmd/qmd-go/internal/config"
+	"github.com/qmd/qmd-go/internal/llm"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -40,6 +43,8 @@ type IndexStats struct {
 type Store struct {
 	config     *config.Config
 	connections map[string]*sql.DB
+	llmRouter  *llm.Router
+	qdrant     *QdrantBackend
 }
 
 // New creates a new Store
@@ -47,6 +52,22 @@ func New(cfg *config.Config) (*Store, error) {
 	store := &Store{
 		config:     cfg,
 		connections: make(map[string]*sql.DB),
+		llmRouter:  llm.New(cfg),
+	}
+
+	// Initialize Qdrant backend if configured
+	if cfg.Vector.Backend == "qdrant" {
+		qdrant, err := NewQdrantBackend(
+			cfg.Vector.Qdrant.URL,
+			cfg.Vector.Qdrant.APIKey,
+			cfg.Vector.Qdrant.Collection,
+			uint64(cfg.Vector.Qdrant.VectorSize),
+		)
+		if err != nil {
+			fmt.Printf("Warning: Qdrant backend not available: %v\n", err)
+		} else {
+			store.qdrant = qdrant
+		}
 	}
 
 	// Initialize connections for each collection
@@ -202,9 +223,77 @@ func (s *Store) VectorSearch(query string, options SearchOptions) ([]SearchResul
 
 // VectorSearchSQLite performs vector search using sqlite-vec
 func (s *Store) VectorSearchSQLite(query string, options SearchOptions) ([]SearchResult, error) {
-	// TODO: Generate embedding for query
-	// For now, return BM25 results as placeholder
-	return s.BM25Search(query, options)
+	ctx := context.Background()
+
+	// Generate query embedding
+	embeddingResult, err := s.llmRouter.Embed(ctx, []string{query})
+	if err != nil {
+		// Fall back to BM25
+		return s.BM25Search(query, options)
+	}
+
+	queryVector := embeddingResult.Embeddings[0]
+
+	// Search using sqlite-vec
+	results := []SearchResult{}
+	collections := s.getCollections(options)
+
+	for _, collection := range collections {
+		db, err := s.GetConnection(collection)
+		if err != nil {
+			continue
+		}
+
+		// Convert vector to JSON
+		vectorJSON, _ := json.Marshal(queryVector)
+
+		rows, err := db.Query(`
+			SELECT
+				v.hash_seq,
+				v.embedding,
+				d.title,
+				d.path,
+				d.hash,
+				d.collection
+			FROM vectors_vec v
+			JOIN documents d ON v.hash_seq LIKE d.hash || '%'
+			WHERE d.active = 1
+			ORDER BY v.embedding <=> ?
+			LIMIT ?
+		`, string(vectorJSON), options.Limit)
+
+		if err != nil {
+			// sqlite-vec may not be available
+			continue
+		}
+
+		for rows.Next() {
+			var hashSeq string
+			var embedding float64
+			var title, path, hash, coll string
+
+			rows.Scan(&hashSeq, &embedding, &title, &path, &hash, &coll)
+
+			// Convert distance to score
+			score := 1.0 / (1.0 + embedding)
+
+			results = append(results, SearchResult{
+				Path:       coll + "/" + path,
+				Collection: coll,
+				Score:      float32(score),
+				Lines:      0,
+				Title:      title,
+				Hash:       hash,
+			})
+		}
+	}
+
+	if len(results) == 0 {
+		// Fall back to BM25
+		return s.BM25Search(query, options)
+	}
+
+	return results, nil
 }
 
 // HybridSearch performs hybrid search with reranking
