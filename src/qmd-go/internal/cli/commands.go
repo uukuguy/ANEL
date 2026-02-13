@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/qmd/qmd-go/internal/config"
+	"github.com/qmd/qmd-go/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -15,6 +17,15 @@ var RootCmd = &cobra.Command{
 	Short: "QMD - AI-powered search with hybrid BM25 and vector search",
 	Long:  `QMD provides AI-powered search with hybrid BM25 and vector search capabilities.`,
 }
+
+// Global options
+var (
+	configPath string
+	outputFormat string
+	limit       int
+	ftsBackend  string
+	vectorBackend string
+)
 
 // Search options
 type SearchOptions struct {
@@ -27,43 +38,56 @@ type SearchOptions struct {
 	VectorBackend string
 }
 
+var searchOpts SearchOptions
+
 func init() {
 	// Global flags
-	RootCmd.PersistentFlags().StringVarP(&SearchOptions{}.Format, "format", "f", "cli", "Output format: cli, json, md, csv, files")
-	RootCmd.PersistentFlags().IntVarP(&SearchOptions{}.Limit, "limit", "n", 20, "Max results")
-	RootCmd.PersistentFlags().StringVar(&SearchOptions{}.FTSBackend, "fts-backend", "sqlite_fts5", "BM25 backend: sqlite_fts5, lancedb")
-	RootCmd.PersistentFlags().StringVar(&SearchOptions{}.VectorBackend, "vector-backend", "qmd_builtin", "Vector backend: qmd_builtin, lancedb")
+	RootCmd.PersistentFlags().StringVarP(&outputFormat, "format", "f", "cli", "Output format: cli, json, md, csv, files")
+	RootCmd.PersistentFlags().IntVarP(&limit, "limit", "n", 20, "Max results")
+	RootCmd.PersistentFlags().StringVar(&ftsBackend, "fts-backend", "sqlite_fts5", "BM25 backend: sqlite_fts5, lancedb")
+	RootCmd.PersistentFlags().StringVar(&vectorBackend, "vector-backend", "qmd_builtin", "Vector backend: qmd_builtin, lancedb, qdrant")
+	RootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Config file path")
 
 	// Add subcommands
 	RootCmd.AddCommand(collectionCmd)
 	RootCmd.AddCommand(contextCmd)
 	RootCmd.AddCommand(getCmd)
-	RootCmd.AddCommand(multiGetCmd)
 	RootCmd.AddCommand(searchCmd)
 	RootCmd.AddCommand(vsearchCmd)
 	RootCmd.AddCommand(queryCmd)
 	RootCmd.AddCommand(embedCmd)
 	RootCmd.AddCommand(updateCmd)
 	RootCmd.AddCommand(statusCmd)
-	RootCmd.AddCommand(cleanupCmd)
 	RootCmd.AddCommand(mcpCmd)
-	RootCmd.AddCommand(agentCmd)
 }
 
 // LoadConfig loads configuration
-func LoadConfig() (*Config, error) {
-	configPath := expandPath("~/.config/qmd/index.yaml")
-
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return DefaultConfig(), nil
+func LoadConfig() (*config.Config, error) {
+	cfgPath := configPath
+	if cfgPath == "" {
+		cfgPath = expandPath("~/.config/qmd/index.yaml")
 	}
 
-	data, err := os.ReadFile(configPath)
+	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+		return config.DefaultConfig(), nil
+	}
+
+	data, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return nil, err
 	}
 
-	return LoadConfigFromData(data)
+	return config.LoadConfigFromData(data)
+}
+
+// LoadStore loads the store
+func LoadStore() (*store.Store, error) {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return store.New(cfg)
 }
 
 func expandPath(path string) string {
@@ -73,4 +97,29 @@ func expandPath(path string) string {
 		}
 	}
 	return path
+}
+
+// printResults prints search results in the specified format
+func printResults(results []store.SearchResult, format string) {
+	switch format {
+	case "json":
+		for _, r := range results {
+			fmt.Printf(`{"path": "%s", "collection": "%s", "score": %f, "lines": %d, "title": "%s"}`+"\n",
+				r.Path, r.Collection, r.Score, r.Lines, r.Title)
+		}
+	case "csv":
+		fmt.Println("path,collection,score,lines,title")
+		for _, r := range results {
+			fmt.Printf("%s,%s,%f,%d,%s\n", r.Path, r.Collection, r.Score, r.Lines, r.Title)
+		}
+	default: // cli
+		for _, r := range results {
+			fmt.Printf("[%.3f] %s (%s)\n", r.Score, r.Path, r.Collection)
+			fmt.Printf("    Title: %s, Lines: %d\n", r.Title, r.Lines)
+		}
+	}
+}
+
+func init() {
+	log.SetFlags(0)
 }

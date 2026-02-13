@@ -8,6 +8,7 @@ dependencies = [
     "typer>=0.9.0",
     "pyyaml>=6.0",
     "lancedb>=0.16.0",
+    "qdrant-client>=1.12.0",
     "openai>=1.0.0",
     "anthropic>=0.25.0",
     "mcp>=0.1.0",
@@ -26,8 +27,8 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.project"
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
 [tool.black]
 line-length = 100

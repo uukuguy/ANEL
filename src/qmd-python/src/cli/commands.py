@@ -9,6 +9,13 @@ from rich import print
 app_collection = typer.Typer(help="Manage collections")
 app_context = typer.Typer(help="Manage contexts")
 
+# Main app commands
+app = typer.Typer(
+    name="qmd",
+    help="QMD - AI-powered search with hybrid BM25 and vector search",
+    add_completion=False,
+)
+
 
 @app_collection.command("add")
 def collection_add(
@@ -51,7 +58,7 @@ def collection_rename(old_name: str, new_name: str) -> None:
     print(f"Renamed '{old_name}' to '{new_name}'")
 
 
-app_context.command("add")
+@app_context.command("add")
 def context_add(
     path: Optional[str] = typer.Argument(None, help="Path (default: current directory)"),
     description: str = typer.Option(..., "-d", "--description", help="Description"),
@@ -76,6 +83,7 @@ collection_cmd = app_collection
 context_cmd = app_context
 
 
+# Main app subcommands
 @app.command("get")
 def get_cmd(
     file: str = typer.Argument(..., help="File path (with optional :line suffix)"),
@@ -107,7 +115,21 @@ def search_cmd(
     fts_backend: str = typer.Option("sqlite_fts5", "--fts-backend", help="BM25 backend"),
 ) -> None:
     """BM25 full-text search."""
-    print(f"Searching: {query}")
+    from ..config import Config
+    from ..store import Store, SearchOptions
+
+    config = Config.load()
+    store = Store(config)
+    options = SearchOptions(
+        limit=limit,
+        collection=collection,
+        search_all=all_collections,
+    )
+    results = store.bm25_search(query, options)
+
+    for r in results:
+        print(f"[{r.score:.3f}] {r.path}")
+        print(f"    Title: {r.title}")
 
 
 @app.command("vsearch")
@@ -157,10 +179,21 @@ def status_cmd(
     verbose: bool = typer.Option(False, "-v", "--verbose", help="Detailed output"),
 ) -> None:
     """Show index status."""
+    from ..config import Config
+    from ..store import Store
+
+    config = Config.load()
+    store = Store(config)
+    stats = store.get_stats()
+
     print("Index Status")
     print("=" * 40)
-    print("Collections: 0")
-    print("Documents: 0")
+    print(f"Collections: {stats.collection_count}")
+    print(f"Documents: {stats.document_count}")
+    if verbose:
+        print("\nDetailed Statistics:")
+        for name, count in stats.collection_stats.items():
+            print(f"  {name}: {count} documents")
 
 
 @app.command("cleanup")
@@ -170,3 +203,9 @@ def cleanup_cmd(
 ) -> None:
     """Cleanup stale entries."""
     print("Cleanup completed")
+
+
+# Register subcommands at module level
+collection_cmd = app_collection
+context_cmd = app_context
+search_cmd = app  # Use main app for search

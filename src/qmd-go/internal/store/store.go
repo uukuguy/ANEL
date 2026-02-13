@@ -186,15 +186,31 @@ func (s *Store) BM25Search(query string, options SearchOptions) ([]SearchResult,
 
 // VectorSearch performs vector search
 func (s *Store) VectorSearch(query string, options SearchOptions) ([]SearchResult, error) {
-	// TODO: Implement vector search
-	// For now, fall back to BM25
+	// Check vector backend configuration
+	switch s.config.Vector.Backend {
+	case "qmd_builtin":
+		// Use sqlite-vec
+		return s.VectorSearchSQLite(query, options)
+	case "qdrant":
+		// Use Qdrant backend
+		return s.VectorSearchQdrant(query, options)
+	default:
+		// Fall back to BM25
+		return s.BM25Search(query, options)
+	}
+}
+
+// VectorSearchSQLite performs vector search using sqlite-vec
+func (s *Store) VectorSearchSQLite(query string, options SearchOptions) ([]SearchResult, error) {
+	// TODO: Generate embedding for query
+	// For now, return BM25 results as placeholder
 	return s.BM25Search(query, options)
 }
 
 // HybridSearch performs hybrid search with reranking
 func (s *Store) HybridSearch(query string, options SearchOptions) ([]SearchResult, error) {
 	// Query expansion
-	expanded := s.expandQuery(query)
+	_ = s.expandQuery(query)
 
 	// Parallel retrieval
 	bm25Results, _ := s.BM25Search(query, options)

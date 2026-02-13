@@ -18,6 +18,7 @@ thiserror = "1.0"
 rusqlite = { version = "0.30", features = ["bundled"] }
 sqlite-vec = "0.1"
 lancedb = { version = "0.23", optional = true }
+qdrant-client = { version = "1.12", optional = true }
 arrow-array = { version = "56.0", optional = true }
 arrow-schema = { version = "56.0", optional = true }
 futures-util = { version = "0.3", optional = true }
@@ -68,3 +69,4 @@ default = []
 sqlite-vec = []
 llama-cpp = ["llama-cpp-2"]
 lancedb = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema", "dep:futures-util", "dep:futures"]
+qdrant = ["dep:qdrant-client"]

@@ -1,8 +1,11 @@
 pub mod chunker;
 pub mod lance_backend;
+pub mod qdrant_backend;
 
 #[cfg(feature = "lancedb")]
 use lance_backend::LanceDbBackend;
+#[cfg(feature = "qdrant")]
+use qdrant_backend::QdrantBackend;
 
 use crate::config::{Config, BM25Backend, VectorBackend};
 use crate::llm::Router;
@@ -57,6 +60,8 @@ pub struct Store {
     connections: HashMap<String, Connection>,
     #[cfg(feature = "lancedb")]
     lance_backend: Option<Mutex<LanceDbBackend>>,
+    #[cfg(feature = "qdrant")]
+    qdrant_backend: Option<Mutex<QdrantBackend>>,
 }
 
 impl Store {
@@ -86,11 +91,44 @@ impl Store {
         #[cfg(not(feature = "lancedb"))]
         let _ = config; // Suppress unused warning
 
+        // Initialize Qdrant backend if configured
+        #[cfg(feature = "qdrant")]
+        let qdrant_backend = if matches!(config.vector.backend, VectorBackend::Qdrant) {
+            let qdrant_config = &config.vector.qdrant;
+            let mut backend = {
+                let rt = tokio::runtime::Runtime::new()?;
+                rt.block_on(async {
+                    QdrantBackend::new(
+                        &qdrant_config.url,
+                        qdrant_config.api_key.as_deref(),
+                        &qdrant_config.collection,
+                        qdrant_config.vector_size,
+                    )
+                    .await
+                })?
+            };
+
+            // Ensure collection exists
+            {
+                let rt = tokio::runtime::Runtime::new()?;
+                rt.block_on(async { backend.ensure_collection().await })?;
+            }
+
+            Some(Mutex::new(backend))
+        } else {
+            None
+        };
+
+        #[cfg(not(feature = "qdrant"))]
+        let _ = config; // Suppress unused warning
+
         let store = Self {
             config: config.clone(),
             connections: HashMap::new(),
             #[cfg(feature = "lancedb")]
             lance_backend,
+            #[cfg(feature = "qdrant")]
+            qdrant_backend,
         };
 
         // Initialize database connections for each collection
@@ -406,6 +444,14 @@ impl Store {
             VectorBackend::LanceDb => {
                 anyhow::bail!("LanceDB backend not enabled. Build with --features lancedb")
             }
+            #[cfg(feature = "qdrant")]
+            VectorBackend::Qdrant => {
+                self.vector_search_qdrant(query_vector, options)
+            }
+            #[cfg(not(feature = "qdrant"))]
+            VectorBackend::Qdrant => {
+                anyhow::bail!("Qdrant backend not enabled. Build with --features qdrant")
+            }
         }
     }
 
@@ -475,6 +521,27 @@ impl Store {
         }
 
         Ok(all_results)
+    }
+
+    /// Vector search using Qdrant
+    #[cfg(feature = "qdrant")]
+    fn vector_search_qdrant(
+        &self,
+        query_vector: &[f32],
+        options: SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
+        if let Some(ref backend_mutex) = self.qdrant_backend {
+            if let Ok(backend) = backend_mutex.lock() {
+                let rt = tokio::runtime::Runtime::new()?;
+                let results = rt.block_on(async {
+                    backend
+                        .vector_search(query_vector, options.limit, None)
+                        .await
+                });
+                return results;
+            }
+        }
+        Ok(Vec::new())
     }
 
     /// Perform vector search in a single database
@@ -1373,6 +1440,8 @@ mod tests {
             connections: HashMap::new(),
             #[cfg(feature = "lancedb")]
             lance_backend: None,
+            #[cfg(feature = "qdrant")]
+            qdrant_backend: None,
         };
 
         let opts = SearchOptions {
@@ -1419,6 +1488,8 @@ mod tests {
             connections: HashMap::new(),
             #[cfg(feature = "lancedb")]
             lance_backend: None,
+            #[cfg(feature = "qdrant")]
+            qdrant_backend: None,
         };
 
         let opts = SearchOptions {
@@ -1458,6 +1529,8 @@ mod tests {
             connections: HashMap::new(),
             #[cfg(feature = "lancedb")]
             lance_backend: None,
+            #[cfg(feature = "qdrant")]
+            qdrant_backend: None,
         };
 
         let stats = store.get_stats().unwrap();

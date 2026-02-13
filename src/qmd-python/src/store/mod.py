@@ -170,7 +170,40 @@ class Store:
         self, query: str, options: SearchOptions
     ) -> List[SearchResult]:
         """Vector semantic search."""
+        # Dispatch based on backend configuration
+        backend = self.config.vector.backend
+
+        if backend == "qmd_builtin":
+            return self._vector_search_sqlite(query, options)
+        elif backend == "qdrant":
+            return self._vector_search_qdrant(query, options)
+        elif backend == "lancedb":
+            return self._vector_search_lancedb(query, options)
+        else:
+            # Fall back to BM25
+            return self.bm25_search(query, options)
+
+    def _vector_search_sqlite(
+        self, query: str, options: SearchOptions
+    ) -> List[SearchResult]:
+        """Vector search using sqlite-vec."""
         # TODO: Generate query embedding and search
+        # Placeholder: fall back to BM25
+        return self.bm25_search(query, options)
+
+    def _vector_search_qdrant(
+        self, query: str, options: SearchOptions
+    ) -> List[SearchResult]:
+        """Vector search using Qdrant."""
+        # TODO: Implement Qdrant backend
+        # Placeholder: fall back to BM25
+        return self.bm25_search(query, options)
+
+    def _vector_search_lancedb(
+        self, query: str, options: SearchOptions
+    ) -> List[SearchResult]:
+        """Vector search using LanceDB."""
+        # TODO: Implement LanceDB backend
         # Placeholder: fall back to BM25
         return self.bm25_search(query, options)
 

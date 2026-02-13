@@ -12,8 +12,8 @@ func main() {
 	// Initialize logger
 	log.SetFlags(0)
 
-	// Load configuration
-	config, err := cli.LoadConfig()
+	// Load configuration (for validation)
+	_, err := cli.LoadConfig()
 	if err != nil {
 		log.Printf("Warning: %v", err)
 	}

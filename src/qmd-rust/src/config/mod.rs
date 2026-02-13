@@ -24,6 +24,8 @@ pub enum VectorBackend {
     QmdBuiltin,
     #[serde(rename = "lancedb")]
     LanceDb,
+    #[serde(rename = "qdrant")]
+    Qdrant,
 }
 
 /// Collection configuration
@@ -94,6 +96,49 @@ pub struct VectorBackendConfig {
     pub backend: VectorBackend,
     #[serde(default)]
     pub model: String,
+    /// Qdrant-specific configuration
+    #[serde(default)]
+    pub qdrant: QdrantConfig,
+}
+
+/// Qdrant vector database configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QdrantConfig {
+    /// Qdrant server URL (e.g., "http://localhost:6333" or cloud URL)
+    #[serde(default = "default_qdrant_url")]
+    pub url: String,
+    /// API key for Qdrant Cloud authentication
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Collection name for QMD documents
+    #[serde(default = "default_qdrant_collection")]
+    pub collection: String,
+    /// Vector size/dimension (must match embedding model)
+    #[serde(default = "default_vector_size")]
+    pub vector_size: usize,
+}
+
+impl Default for QdrantConfig {
+    fn default() -> Self {
+        Self {
+            url: default_qdrant_url(),
+            api_key: None,
+            collection: default_qdrant_collection(),
+            vector_size: default_vector_size(),
+        }
+    }
+}
+
+fn default_qdrant_url() -> String {
+    "http://localhost:6333".to_string()
+}
+
+fn default_qdrant_collection() -> String {
+    "qmd_documents".to_string()
+}
+
+fn default_vector_size() -> usize {
+    384 // Default embedding dimension for embeddinggemma-300M
 }
 
 impl Default for VectorBackendConfig {
@@ -101,6 +146,7 @@ impl Default for VectorBackendConfig {
         Self {
             backend: VectorBackend::QmdBuiltin,
             model: "embeddinggemma-300M".to_string(),
+            qdrant: QdrantConfig::default(),
         }
     }
 }

@@ -26,6 +26,7 @@ type VectorBackend string
 const (
 	VectorBackendQmdBuiltin VectorBackend = "qmd_builtin"
 	VectorBackendLanceDB    VectorBackend = "lancedb"
+	VectorBackendQdrant    VectorBackend = "qdrant"
 )
 
 // CollectionConfig represents a collection configuration
@@ -45,6 +46,15 @@ type BM25Config struct {
 type VectorConfig struct {
 	Backend VectorBackend `yaml:"backend"`
 	Model   string        `yaml:"model"`
+	Qdrant  QdrantConfig `yaml:"qdrant,omitempty"`
+}
+
+// QdrantConfig represents Qdrant configuration
+type QdrantConfig struct {
+	URL          string `yaml:"url"`
+	APIKey       string `yaml:"api_key,omitempty"`
+	Collection   string `yaml:"collection"`
+	VectorSize   int    `yaml:"vector_size"`
 }
 
 // LLMModelConfig represents LLM model configuration
@@ -78,6 +88,11 @@ func DefaultConfig() *Config {
 		Vector: VectorConfig{
 			Backend: VectorBackendQmdBuiltin,
 			Model:   "embeddinggemma-300M",
+			Qdrant: QdrantConfig{
+				URL:         "http://localhost:6333",
+				Collection:  "qmd_documents",
+				VectorSize:  384,
+			},
 		},
 		Collections: []CollectionConfig{},
 		Models:      ModelsConfig{},
@@ -112,6 +127,11 @@ func LoadConfigFromData(data []byte) (*Config, error) {
 		Vector: VectorConfig{
 			Backend: VectorBackendQmdBuiltin,
 			Model:   "embeddinggemma-300M",
+			Qdrant: QdrantConfig{
+				URL:         "http://localhost:6333",
+				Collection:  "qmd_documents",
+				VectorSize:  384,
+			},
 		},
 		CachePath: DefaultCachePath,
 	}

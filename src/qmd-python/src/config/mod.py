@@ -29,11 +29,22 @@ class BM25Config:
 
 
 @dataclass
+class QdrantConfig:
+    """Qdrant configuration."""
+
+    url: str = "http://localhost:6333"
+    api_key: Optional[str] = None
+    collection: str = "qmd_documents"
+    vector_size: int = 384
+
+
+@dataclass
 class VectorConfig:
     """Vector backend configuration."""
 
     backend: str = "qmd_builtin"
     model: str = "embeddinggemma-300M"
+    qdrant: QdrantConfig = field(default_factory=QdrantConfig)
 
 
 @dataclass
@@ -118,7 +129,16 @@ class Config:
         """Convert config to dictionary."""
         return {
             "bm25": {"backend": self.bm25.backend},
-            "vector": {"backend": self.vector.backend, "model": self.vector.model},
+            "vector": {
+                "backend": self.vector.backend,
+                "model": self.vector.model,
+                "qdrant": {
+                    "url": self.vector.qdrant.url,
+                    "api_key": self.vector.qdrant.api_key,
+                    "collection": self.vector.qdrant.collection,
+                    "vector_size": self.vector.qdrant.vector_size,
+                }
+            },
             "collections": [
                 {
                     "name": c.name,

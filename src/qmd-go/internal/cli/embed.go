@@ -43,7 +43,7 @@ var statusCmd = &cobra.Command{
 		verbose, _ := cmd.Flags().GetBool("verbose")
 
 		fmt.Println("Index Status")
-		fmt.Println("=" + "="*39)
+		fmt.Println("==============================================")
 		fmt.Println("Collections: 0")
 		fmt.Println("Documents: 0")
 
