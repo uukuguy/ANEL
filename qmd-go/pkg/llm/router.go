@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/qmd/qmd-go/pkg/config"
-	"github.com/qmd/qmd-go/pkg/store"
 )
 
 // Provider type
@@ -242,7 +241,7 @@ func (r *LocalReranker) Rerank(query string, docs []string) ([]float32, error) {
 	}
 
 	cmd := exec.Command("llama-cli", args...)
-	output, err := cmd.Output()
+	_, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("llama-cli failed: %w", err)
 	}
@@ -348,19 +347,4 @@ func (e *QueryExpander) ExpandQuery(query string) []string {
 	}
 
 	return expanded
-}
-
-// StoreEmbeddings stores embeddings in database
-func StoreEmbeddings(s *store.Store, hash string, embeddings [][]float32, model string) error {
-	for seq, emb := range embeddings {
-		embJSON, _ := json.Marshal(emb)
-		_, err := s.DB.Exec(`
-			INSERT OR REPLACE INTO content_vectors (hash, seq, embedding, model, embedded_at)
-			VALUES (?, ?, ?, ?, datetime('now'))
-		`, hash, seq, string(embJSON), model)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }

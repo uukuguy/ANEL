@@ -290,11 +290,10 @@ impl Store {
 
         for collection in collections {
             if let Some(ref backend_mutex) = self.lance_backend {
-                if let Ok(mut backend) = backend_mutex.lock() {
+                if let Ok(backend) = backend_mutex.lock() {
                     let rt = tokio::runtime::Runtime::new()?;
                     let results = rt.block_on(async {
-                        let table = backend.get_fts_table(collection).await?;
-                        backend.fts_search(&table, query, limit).await
+                        backend.fts_search(collection, query, limit).await
                     });
                     if let Ok(mut results) = results {
                         all_results.append(&mut results);
@@ -463,11 +462,10 @@ impl Store {
 
         for collection in collections {
             if let Some(ref backend_mutex) = self.lance_backend {
-                if let Ok(mut backend) = backend_mutex.lock() {
+                if let Ok(backend) = backend_mutex.lock() {
                     let rt = tokio::runtime::Runtime::new()?;
                     let results = rt.block_on(async {
-                        let table = backend.get_vector_table(collection).await?;
-                        backend.vector_search(&table, query_vector, options.limit).await
+                        backend.vector_search(collection, query_vector, options.limit).await
                     });
                     if let Ok(results) = results {
                         all_results.extend(results);

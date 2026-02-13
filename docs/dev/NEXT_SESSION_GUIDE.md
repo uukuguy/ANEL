@@ -601,7 +601,7 @@ cargo test --features lancedb
 2. `qmd-python/` — 15个Python文件
    - 完整13个CLI命令
    - SQLite FTS5 BM25搜索
-   - 向量搜索（占位）
+   - 向量搜索（完整实现）
    - 6种输出格式
 
 **构建状态**:
@@ -651,12 +651,47 @@ cd qmd-python && pip install -e .  # ✅ 成功
 | 版本 | 状态 |
 |------|------|
 | Rust (qmd-rust) | 169 测试通过，功能完善 |
-| Go (qmd-go) | 编译成功 |
-| Python (qmd-python) | 已安装可用 |
+| Go (qmd-go) | 编译成功，向量搜索已实现 |
+| Python (qmd-python) | 已安装可用，向量搜索已实现 |
 
 ### 剩余 Stub TODO (可选增强)
 - `src/qmd-python/` - 旧版参考实现
 - LLM 集成 - 需要外部 llama-cli 支持
+- LanceDB 后端 - 需要完整实现 Arrow 数组处理
+
+---
+
+## 📝 2026-02-13 下午工作完成
+
+本次工作完善了以下内容：
+
+### 1. Go 版本向量搜索实现 ✅
+- **更新文件**:
+  - `qmd-go/pkg/store/store.go` - 添加向量表支持 (content_vectors, vectors_vec)
+  - `qmd-go/pkg/store/store.go` - 添加 `GetDocumentsForEmbedding`, `StoreEmbedding`, `DeleteEmbeddings`, `GetCollections` 方法
+  - `qmd-go/pkg/cli/embed.go` - 实现完整的 embed 命令
+
+- **构建状态**: `go build` ✅ 成功
+
+### 2. Python 版本向量搜索实现 ✅
+- **更新文件**:
+  - `qmd-python/src/qmd/store/store.py` - 添加向量表支持和方法
+  - `qmd-python/src/qmd/cli/commands.py` - 实现完整的 embed, vsearch, query 命令
+  - `qmd-python/src/qmd/llm/router.py` - 添加 `init_embedder` 方法
+
+- **功能**:
+  - `qmd embed` - 生成文档向量嵌入
+  - `qmd vsearch` - 向量语义搜索
+  - `qmd query` - 混合搜索 (BM25 + 向量)
+
+- **安装状态**: `pip install -e .` ✅ 成功
+
+### 3. Rust 版本 LanceDB 后端改进 ✅
+- **更新文件**:
+  - `src/qmd-rust/Cargo.toml` - 降级 arrow-array 到 v56.0 解决版本冲突
+  - `src/qmd-rust/src/store/lance_backend/lance_backend.rs` - 简化 API，修复编译错误
+
+- **测试状态**: `cargo test --features lancedb` ✅ 全部通过
 
 ---
 

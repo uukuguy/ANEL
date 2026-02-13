@@ -103,15 +103,20 @@ class Store:
             expires_at TEXT
         );
 
-        -- Content vectors
+        -- Content vectors metadata
         CREATE TABLE IF NOT EXISTS content_vectors (
             hash TEXT NOT NULL,
             seq INTEGER NOT NULL DEFAULT 0,
-            embedding TEXT NOT NULL,
             pos INTEGER NOT NULL DEFAULT 0,
             model TEXT NOT NULL,
             embedded_at TEXT NOT NULL,
             PRIMARY KEY (hash, seq)
+        );
+
+        -- Vector storage (for qmd built-in vector search)
+        CREATE TABLE IF NOT EXISTS vectors_vec (
+            hash_seq TEXT PRIMARY KEY,
+            embedding TEXT NOT NULL
         );
 
         -- Indexes
@@ -300,14 +305,60 @@ class Store:
         results.sort(key=lambda x: x.score, reverse=True)
         return results
 
-    def store_embeddings(self, doc_hash: str, embeddings: list[list[float]], model: str):
-        """Store embeddings in database"""
-        now = datetime.utcnow().isoformat()
-        for seq, emb in enumerate(embeddings):
-            self.conn.execute(
-                "INSERT OR REPLACE INTO content_vectors (hash, seq, embedding, model, embedded_at) VALUES (?, ?, ?, ?, ?)",
-                (doc_hash, seq, json.dumps(emb), model, now)
+    def get_documents_for_embedding(self, collection: str, force: bool = False) -> list[dict]:
+        """Get documents that need embedding"""
+        if force:
+            cursor = self.conn.execute(
+                "SELECT id, hash, doc FROM documents WHERE collection = ? AND active = 1",
+                (collection,)
             )
+        else:
+            cursor = self.conn.execute(
+                """SELECT id, hash, doc FROM documents
+                   WHERE collection = ? AND active = 1
+                   AND hash NOT IN (SELECT DISTINCT hash FROM content_vectors)""",
+                (collection,)
+            )
+        docs = []
+        for row in cursor.fetchall():
+            docs.append({
+                "id": row[0],
+                "hash": row[1],
+                "doc": row[2],
+            })
+        return docs
+
+    def store_embedding(self, hash: str, seq: int, pos: int, embedding: list[float], model: str):
+        """Store a single embedding"""
+        now = datetime.utcnow().isoformat()
+
+        # Store in content_vectors metadata table
+        self.conn.execute(
+            "INSERT OR REPLACE INTO content_vectors (hash, seq, pos, model, embedded_at) VALUES (?, ?, ?, ?, ?)",
+            (hash, seq, pos, model, now)
+        )
+
+        # Store in vectors_vec table
+        hash_seq = f"{hash}_{seq}"
+        self.conn.execute(
+            "INSERT OR REPLACE INTO vectors_vec (hash_seq, embedding) VALUES (?, ?)",
+            (hash_seq, json.dumps(embedding))
+        )
+
+        self.conn.commit()
+
+    def delete_embeddings(self, hash: str):
+        """Delete all embeddings for a document"""
+        # Delete from vectors_vec
+        self.conn.execute(
+            "DELETE FROM vectors_vec WHERE hash_seq LIKE ?",
+            (f"{hash}_%",)
+        )
+        # Delete from content_vectors
+        self.conn.execute(
+            "DELETE FROM content_vectors WHERE hash = ?",
+            (hash,)
+        )
         self.conn.commit()
 
     @staticmethod

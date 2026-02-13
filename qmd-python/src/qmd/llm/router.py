@@ -154,6 +154,27 @@ class Router:
         self.local_reranker: Optional[Reranker] = None
         self.remote_reranker: Optional[Reranker] = None
 
+    def init_embedder(self):
+        """Initialize embedder from config"""
+        if not self.config.models or not self.config.models.embed:
+            return
+
+        # Try local embedder first
+        if self.config.models.embed.local:
+            try:
+                self.local_embedder = LocalEmbedder(self.config.models.embed.local)
+                return
+            except FileNotFoundError:
+                pass
+
+        # Try remote embedder
+        if self.config.models.embed.remote:
+            self.remote_embedder = RemoteEmbedder(
+                self.config.models.embed.remote,
+                self.config.models.embed.get("api_url", ""),
+                self.config.models.embed.get("api_key", "")
+            )
+
     def has_embedder(self) -> bool:
         return self.local_embedder is not None or self.remote_embedder is not None
 
