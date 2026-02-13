@@ -6,6 +6,12 @@ dist/
 wheels/
 *.egg-info
 
+# Go binary
+src/qmd-go/qmd
+
+# Python binary (when built)
+src/qmd-python/qmd
+
 # Virtual environments
 .venv
 

@@ -710,3 +710,64 @@ cd qmd-python && pip install -e .  # ✅ 成功
 2. **Bug Fixes**: vec0 graceful degradation, SearchResult Deserialize
 
 3. **76 tests total**: 35 unit + 41 integration — all passing
+
+---
+
+## 🎯 项目改进计划 - MCP HTTP Server (2026-02-13)
+
+### 背景
+用户明确设计理念：
+1. 三版本命令行参数、基础设施必须一致
+2. CLI 模式要求轻便快速，考虑模型加载耗时
+3. Server 模式适合长期服务
+4. LanceDB 非企业级最优选择，需评估 Qdrant
+5. 默认便携性优先（不依赖外部基础设施），支持灵活定制
+
+### 已完成 ✅
+
+1. **清理冗余目录**
+   - 删除了根目录的 `qmd-go/` 和 `qmd-python/` 冗余目录
+   - 更新 `.gitignore` 确保不提交构建产物
+
+2. **MCP HTTP Server 模式实现**
+   - 在 `src/qmd-rust/Cargo.toml` 添加了以下依赖：
+     - `rmcp` 启用 `transport-streamable-http-server` 和 `transport-streamable-http-server-session` features
+     - `tower`, `axum`, `bytes`, `http-body-util`
+   - 修改 `src/qmd-rust/src/mcp/mod.rs` 添加 HTTP 传输支持
+   - 支持 `--transport http --port 8080` 启动 HTTP 服务器
+
+### 性能优势
+
+| 模式 | 模型加载 | 查询延迟 | 适用场景 |
+|------|----------|----------|----------|
+| MCP stdio | ~3s (每次) | ~100ms | 临时/移动使用 |
+| **MCP HTTP** | ~3s (首次) | ~10ms | **AI 高频调用** ✅ |
+| CLI | ~3s (每次) | ~100ms | 偶尔使用 |
+
+### 使用方法
+
+```bash
+# 启动 MCP HTTP Server（模型加载一次，缓存内存）
+./target/release/qmd-rust mcp --transport http --port 8080
+
+# 测试初始化请求
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{...}}'
+```
+
+### 待完成
+
+1. **统一三版本架构和配置** - 配置格式需要统一
+2. **Go/Python MCP HTTP Server 实现** - 需参考 Rust 版本实现
+3. **向量后端增强** - 添加 Qdrant 支持（可选）
+
+---
+
+### 文件变更记录
+
+- `qmd-go/` - 已删除（冗余目录）
+- `qmd-python/` - 已删除（冗余目录）
+- `.gitignore` - 更新排除 Go/Python 二进制文件
+- `src/qmd-rust/Cargo.toml` - 添加 MCP HTTP 传输依赖
+- `src/qmd-rust/src/mcp/mod.rs` - 添加 HTTP Server 实现

@@ -3,6 +3,8 @@ use crate::config::Config;
 use crate::llm::Router;
 use crate::store::{SearchOptions, Store};
 use anyhow::Result;
+use bytes::Bytes;
+use http_body_util::BodyExt;
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::*;
@@ -11,6 +13,7 @@ use rmcp::{tool, tool_router, ErrorData as McpError, ServerHandler};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
+use std::convert::Infallible;
 
 // ── Parameter types ──────────────────────────────────────────────
 
@@ -269,10 +272,7 @@ impl ServerHandler for QmdMcpServer {
 pub fn run_server(args: &McpArgs, config: &Config) -> Result<()> {
     match args.transport.as_str() {
         "stdio" => run_stdio_server(config),
-        "sse" => {
-            log::warn!("SSE transport not yet implemented, falling back to stdio");
-            run_stdio_server(config)
-        }
+        "http" | "sse" => run_http_server(args, config),
         _ => anyhow::bail!("Unknown transport: {}", args.transport),
     }
 }
@@ -284,6 +284,70 @@ fn run_stdio_server(config: &Config) -> Result<()> {
         let service = server.serve(transport).await?;
         service.waiting().await?;
         Ok(())
+    })
+}
+
+fn run_http_server(args: &McpArgs, config: &Config) -> Result<()> {
+    use rmcp::transport::streamable_http_server::{
+        StreamableHttpServerConfig, StreamableHttpService,
+    };
+    use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+    use std::sync::Arc;
+    use axum::routing::post;
+    use axum::Router;
+    use tower::ServiceExt;
+    use std::net::SocketAddr;
+    use http_body_util::combinators::BoxBody;
+
+    // Create server instance
+    let server = QmdMcpServer::new(config.clone())?;
+
+    // Get server for service factory
+    let server_clone = server.clone();
+
+    // Configure HTTP server
+    let server_config = StreamableHttpServerConfig::default();
+
+    // Use LocalSessionManager for simple in-memory session handling
+    let session_manager: Arc<LocalSessionManager> = Arc::new(LocalSessionManager::default());
+
+    // Create HTTP service with service factory
+    let http_service = StreamableHttpService::new(
+        move || Ok(server_clone.clone()),
+        session_manager.clone(),
+        server_config,
+    );
+
+    // Create axum app with MCP endpoint
+    let app = Router::new()
+        .route("/mcp", post(move |req| {
+            let mut service = http_service.clone();
+            async move {
+                let response: Result<axum::http::Response<BoxBody<Bytes, Infallible>>, _> = ServiceExt::oneshot(&mut service, req).await;
+                match response {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        log::error!("MCP service error: {}", e);
+                        axum::http::Response::new(
+                            http_body_util::Full::new(Bytes::from(format!("Error: {}", e)))
+                                .boxed()
+                        )
+                    }
+                }
+            }
+        }));
+
+    // Bind and run HTTP server
+    let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
+    let rt = tokio::runtime::Runtime::new()?;
+
+    log::info!("MCP HTTP Server listening on http://{}", addr);
+    log::info!("Model will stay loaded in memory for fast subsequent queries");
+
+    rt.block_on(async {
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        axum::serve(listener, app).await?;
+        Ok::<(), anyhow::Error>(())
     })
 }
 
