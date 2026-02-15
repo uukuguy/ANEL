@@ -1031,10 +1031,11 @@ qmd agent --query "how to configure embedding"
 
 ### 后续工作 (可选)
 
-1. **Phase 3.1: Server 基础架构完善**
-   - 完善混合搜索实现 (当前委托给 vsearch)
-   - 添加中间件层 (rate limit, auth)
-   - 添加 MCP 协议完整实现
+1. **Phase 3.1: Server 基础架构完善** ✅ COMPLETED (2026-02-15)
+   - ✅ 混合搜索实现 (BM25 + Vector + RRF + LLM Rerank)
+   - ✅ Rate Limiting 中间件 (100 req/min, 基于 IP)
+   - ✅ API Key 认证 (X-API-Key header)
+   - ⚠️ MCP 协议 - 返回提示使用独立服务器
 
 2. **Phase 3.2: Wasm 插件系统** (3-4 周)
    - WIT 接口定义
@@ -1045,3 +1046,7 @@ qmd agent --query "how to configure embedding"
    - 日志系统 (tracing)
    - 指标收集 (prometheus)
    - 分布式追踪 (opentelemetry)
+
+4. **Phase 3.1 续: 企业级认证** (可选)
+   - OAuth2 / JWT 令牌
+   - 基于租户的 Rate Limiting

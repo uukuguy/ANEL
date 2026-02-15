@@ -4,10 +4,62 @@ use crate::server::ServerState;
 use crate::store::SearchOptions;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{header::HeaderMap, StatusCode},
     response::{IntoResponse, Json},
 };
 use serde::{Deserialize, Serialize};
+
+/// Check rate limit and authentication
+/// Returns None if passed, Some(response) if failed
+pub async fn check_rate_limit_and_auth(
+    state: &ServerState,
+    headers: &HeaderMap,
+) -> Option<impl IntoResponse> {
+    let client_ip = get_client_ip(headers);
+
+    // Check rate limit
+    let (allowed, remaining, reset_secs) = state.rate_limit_state.check(&client_ip).await;
+    if !allowed {
+        let error = ErrorResponse {
+            error: "Rate limit exceeded".to_string(),
+            code: "RATE_LIMIT_EXCEEDED".to_string(),
+        };
+        return Some((StatusCode::TOO_MANY_REQUESTS, Json(error)));
+    }
+
+    // Check authentication if enabled
+    if state.auth_enabled {
+        let api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok());
+        if !state.auth_state.is_allowed(api_key, &client_ip).await {
+            let error = ErrorResponse {
+                error: "Authentication required".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            };
+            return Some((StatusCode::UNAUTHORIZED, Json(error)));
+        }
+    }
+
+    None
+}
+
+/// Helper to extract client IP from headers
+fn get_client_ip(headers: &HeaderMap) -> String {
+    // Check X-Forwarded-For header first
+    if let Some(forwarded) = headers.get("x-forwarded-for") {
+        if let Ok(forwarded_str) = forwarded.to_str() {
+            return forwarded_str.split(',').next().unwrap_or("unknown").trim().to_string();
+        }
+    }
+
+    // Check X-Real-IP header
+    if let Some(real_ip) = headers.get("x-real-ip") {
+        if let Ok(ip_str) = real_ip.to_str() {
+            return ip_str.to_string();
+        }
+    }
+
+    "unknown".to_string()
+}
 
 // ── Request/Response types ───────────────────────────────────────────
 
@@ -263,14 +315,118 @@ pub async fn vsearch(
 }
 
 /// Hybrid search (BM25 + Vector + RRF + Reranking)
-/// Note: Uses the same implementation as vsearch for now
 pub async fn query(
     State(state): State<ServerState>,
     Json(req): Json<SearchRequest>,
 ) -> impl IntoResponse {
-    // For now, delegate to vsearch (hybrid requires complex lock handling)
-    // TODO: Implement proper hybrid search with lock management
-    vsearch(State(state), Json(req)).await
+    let query = req.query.clone();
+    let limit = req.limit.unwrap_or(20);
+    let collection = req.collection.clone();
+    let search_all = collection.is_none();
+
+    // Search options for BM25 and Vector
+    let options = SearchOptions {
+        limit: limit * 2, // Fetch more for reranking
+        min_score: 0.0,
+        collection: collection.clone(),
+        search_all,
+    };
+
+    // Step 1: BM25 search (hold Store lock)
+    let bm25_results = {
+        let store = state.store.lock().await;
+        store.bm25_search(&query, options.clone())
+    };
+
+    let bm25_results = match bm25_results {
+        Ok(r) => r,
+        Err(_) => vec![],
+    };
+
+    // Step 2: Vector search (release Store lock first, then re-acquire)
+    let vector_results = {
+        // Generate embedding
+        let embedding = {
+            let llm = state.llm.lock().await;
+            match llm.embed(&[&query]).await {
+                Ok(e) => e.embeddings.into_iter().next().unwrap_or_default(),
+                Err(_) => vec![],
+            }
+        };
+
+        if embedding.is_empty() {
+            vec![]
+        } else {
+            let store = state.store.lock().await;
+            match store.vector_search_with_embedding(&embedding, options) {
+                Ok(r) => r,
+                Err(_) => vec![],
+            }
+        }
+    };
+
+    // Step 3: RRF Fusion (no locks held)
+    let fused_results = {
+        use crate::store::Store;
+        let result_lists = [bm25_results.clone(), vector_results.clone()];
+        Store::rrf_fusion(
+            &result_lists,
+            None,
+            limit as u32,
+        )
+    };
+
+    // Step 4: LLM Reranking (hold LLM lock)
+    // rerank returns Vec<f32> (scores), need to reorder results
+    let final_results = if !fused_results.is_empty() {
+        let scores = {
+            let llm = state.llm.lock().await;
+            match llm.rerank(&query, &fused_results).await {
+                Ok(s) => s,
+                Err(_) => fused_results.iter().map(|r| r.score).collect(),
+            }
+        };
+
+        // Reorder fused_results based on rerank scores
+        let mut paired: Vec<(crate::store::SearchResult, f32)> = fused_results
+            .into_iter()
+            .zip(scores.into_iter())
+            .collect();
+
+        // Sort by rerank score descending
+        paired.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Update scores and return
+        paired
+            .into_iter()
+            .map(|(mut r, score)| {
+                r.score = score;
+                r
+            })
+            .collect()
+    } else {
+        fused_results
+    };
+
+    let dtos: Vec<SearchResultDto> = final_results
+        .into_iter()
+        .map(|r| SearchResultDto {
+            docid: r.docid,
+            collection: r.collection,
+            title: r.title,
+            path: r.path,
+            score: r.score,
+            lines: r.lines,
+        })
+        .collect();
+
+    let response = SearchResponse {
+        total: dtos.len(),
+        results: dtos,
+        query: req.query,
+    };
+
+    Json(response)
 }
 
 /// Get document content
@@ -328,14 +484,17 @@ pub async fn get_document(
 }
 
 /// MCP protocol handler (JSON-RPC)
+/// Note: For production, use standalone MCP HTTP server: `qmd mcp --transport http --port 8081`
+/// This endpoint provides basic MCP protocol info
 pub async fn mcp(
     State(_state): State<ServerState>,
     _body: String,
 ) -> impl IntoResponse {
-    // TODO: Implement full MCP protocol handler
+    // For now, return instructions to use standalone MCP server
+    // Full MCP integration requires more complex state management
     let error = ErrorResponse {
-        error: "MCP protocol not yet implemented in standalone server".to_string(),
-        code: "MCP_NOT_IMPLEMENTED".to_string(),
+        error: "Use standalone MCP server instead: qmd mcp --transport http --port 8081".to_string(),
+        code: "MCP_USE_STANDALONE".to_string(),
     };
     (StatusCode::NOT_IMPLEMENTED, Json(error)).into_response()
 }

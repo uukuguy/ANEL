@@ -76,10 +76,35 @@ fn main() -> Result<()> {
             mcp::run_server(cmd, &config)?;
         }
         Commands::Server(cmd) => {
+            // Parse API keys from comma-separated string
+            let api_keys: Vec<(String, String)> = cmd.api_keys
+                .as_ref()
+                .map(|s| {
+                    s.split(',')
+                        .map(|k| (k.trim().to_string(), "default".to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            // Parse whitelist IPs from comma-separated string
+            let whitelist_ips: Vec<String> = cmd.whitelist_ips
+                .as_ref()
+                .map(|s| {
+                    s.split(',')
+                        .map(|ip| ip.trim().to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+
             let server_config = server::ServerConfig {
                 host: cmd.host.clone(),
                 port: cmd.port,
                 workers: cmd.workers,
+                rate_limit_max: 100,
+                rate_limit_window_secs: 60,
+                auth_enabled: cmd.auth,
+                api_keys,
+                whitelist_ips,
             };
             server::run_server(&server_config, &config)?;
         }

@@ -351,6 +351,15 @@ pub struct ServerArgs {
     /// Number of worker threads
     #[arg(long, default_value = "4")]
     pub workers: usize,
+    /// Enable API key authentication
+    #[arg(long)]
+    pub auth: bool,
+    /// Comma-separated list of API keys
+    #[arg(long)]
+    pub api_keys: Option<String>,
+    /// Comma-separated list of whitelisted IPs (skip auth)
+    #[arg(long)]
+    pub whitelist_ips: Option<String>,
 }
 
 #[derive(Args, Debug)]
