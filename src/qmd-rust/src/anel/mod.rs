@@ -197,6 +197,14 @@ impl AnelError {
     }
 }
 
+impl std::fmt::Display for AnelError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{:?}] {}", self.error_code, self.message)
+    }
+}
+
+impl std::error::Error for AnelError {}
+
 impl AnelErrorCode {
     /// Convert error code to HTTP status
     pub fn to_status(&self) -> u16 {
@@ -301,6 +309,31 @@ pub struct AnelSpec {
 }
 
 impl AnelSpec {
+    /// Serialize to JSON string
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    /// Get spec for a command by name
+    pub fn for_command(command: &str) -> Option<Self> {
+        match command {
+            "search" => Some(Self::search()),
+            "vsearch" => Some(Self::vsearch()),
+            "query" => Some(Self::query()),
+            "get" => Some(Self::get()),
+            "multi_get" => Some(Self::multi_get()),
+            "collection" => Some(Self::collection()),
+            "embed" => Some(Self::embed()),
+            "update" => Some(Self::update()),
+            "status" => Some(Self::status()),
+            "cleanup" => Some(Self::cleanup()),
+            "agent" => Some(Self::agent()),
+            "context" => Some(Self::context()),
+            "mcp" => Some(Self::mcp()),
+            _ => None,
+        }
+    }
+
     /// Get spec for search command
     pub fn search() -> Self {
         Self {
@@ -830,6 +863,11 @@ impl AnelResult {
     pub fn with_trace_id(mut self, trace_id: impl Into<String>) -> Self {
         self.trace_id = Some(trace_id.into());
         self
+    }
+
+    /// Serialize to NDJSON line
+    pub fn to_ndjson(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
     }
 }
 
