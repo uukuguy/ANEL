@@ -1,47 +1,59 @@
 # Next Session Guide - ANEL Project
 
 **Last Updated**: 2026-02-16
-**Current Status**: P2 (Rust LanceDB) + P3 (Go/Python MCP Server) 已完成
+**Current Status**: P1 (MCP 集成测试) + P2 (E2E Demo) + P3 (安全闭环) 全部完成
 **Branch**: ANEL
 
-## 本次完成的工作 (2026-02-16 Session 2)
+## 本次完成的工作 (2026-02-16 Session 3)
 
-### P2: Rust LanceDB 完整实现 ✅
-- 替换 stub 为完整 LanceDB 后端实现
-- `lance_backend.rs`: connect, fts_search, vector_search, insert_documents, ensure_fts_index, ensure_vector_index
-- 添加 `lance-index = "1.0"` 依赖（FullTextSearchQuery 类型来自 lance_index::scalar）
-- Arrow FixedSizeListArray 使用 `new(field, size, values, nulls)` 构造
-- `cargo check --features lancedb` 编译通过
-- `cargo test --features sqlite-vec` 17 个测试全部通过
+### P1: MCP Server 集成测试 ✅
+- **Go** (`internal/mcp/server_test.go`): 17 个测试全部通过
+  - 覆盖 5 个工具: search, vsearch, query, get, status
+  - JSON-RPC 2.0 格式验证、ID 保留、错误处理
+- **Python** (`tests/test_mcp_server.py`): 33 个测试全部通过
+  - 同等覆盖范围，含 edge case 和参数验证
 
-### P3: Go/Python MCP Server tools/call 实现 ✅
-- **Go** (`internal/mcp/server.go`): 新增 Server struct，实现 tools/call 分发
-  - 5 个工具: search → BM25Search, vsearch → VectorSearch, query → HybridSearch, get → ReadFile, status → GetStats
-  - CLI (`internal/cli/mcp.go`): 改用 RunE 调用 mcp.RunServer()
-  - `go build ./...` 通过，所有测试通过
-- **Python** (`src/mcp/server.py`): 新增 McpServer 类，实现 tools/call 分发
-  - 同样 5 个工具，通过 Store 集成
-  - 174 个测试全部通过
+### P2: 端到端 Demo 场景 ✅
+- `scripts/e2e-demo.py`: 18/18 checks 全部通过
+- 5 个阶段完整覆盖 MCP 协议生命周期:
+  1. Discovery — initialize + tools/list
+  2. Rehearsal — AGENT_DRY_RUN=1 干跑预览
+  3. Execution — 工具调用 + StreamTap 审计
+  4. Error Recovery — 未知工具、缺失参数
+  5. Identity — AGENT_IDENTITY_TOKEN 传播验证
+- Python MCP Server 通过 MockStore 在进程内测试
+- Go MCP Server 通过 `go test` 子进程验证
 
-### 配置统一 ✅
-- 三语言 tool inputSchema 已统一:
-  - search/vsearch/query: `{query: string, limit?: integer, collection?: string}`
-  - get: `{path: string, from?: integer, limit?: integer}`
-  - status: 无参数
+### P3: 安全闭环 ✅
+三语言统一实现:
+
+**Stream Tap (审计日志)**
+- Rust: `src/qmd-rust/src/mcp/middleware.rs` — StreamTap NDJSON 审计
+- Go: `src/qmd-go/internal/mcp/server.go` — StreamTap + AuditRecord
+- Python: `src/qmd-python/src/mcp/middleware.py` — AuditMiddleware
+
+**Identity Propagation (身份传播)**
+- 从 `AGENT_IDENTITY_TOKEN` 环境变量提取身份
+- 注入 MCP tool call 上下文，跨服务边界传播
+
+**Dry-Run Interceptor (干跑拦截)**
+- `AGENT_DRY_RUN=1` 时返回操作预览，无副作用
+- 审计记录标记 `status: "dry-run"`
 
 ## 下一步建议优先级
 
-### P4: 完善 README 和项目文档（低优先级）
-- 根目录 README 已提交，内容完整
-- 可选：添加 CONTRIBUTING.md、LICENSE 文件
+### P4: CI/CD 集成（推荐）
+- 将 `scripts/e2e-demo.py` 加入 CI pipeline
+- 添加 GitHub Actions workflow 运行三语言测试
+- 考虑 Rust MCP middleware 的集成测试
 
-### P5: 端到端 Demo 场景（低优先级）
-- Phase 3 路线图要求的"故障排查"端到端演示脚本
-- 串联：Agent 接收指令 → 生成脚本 → 调用工具 → 捕获错误 → 自动修正 → 执行成功
+### P5: Agent 交互模式
+- 实现 Agent 接收指令 → 调用工具 → 自动修正循环
+- 串联 LLM Router + MCP Server 的完整 agent loop
 
-### P6: MCP Server 集成测试
-- 为 Go/Python MCP Server 添加 tools/call 单元测试
-- 验证 JSON-RPC 请求/响应格式正确性
+### P6: 完善 README 和项目文档（低优先级）
+- 添加 P3 安全特性文档
+- 添加 CONTRIBUTING.md、LICENSE 文件
 
 ## 构建命令
 
@@ -53,22 +65,28 @@ cargo check --features lancedb  # LanceDB 编译验证
 
 # Go
 cd src/qmd-go && go build ./...
-go test ./internal/... -v
+go test ./internal/... -v  # 17 MCP tests
 
 # Python
 cd src/qmd-python && pip install -e .
-python -m pytest tests/ -v  # 174 tests
+python -m pytest tests/ -v  # 33+ MCP tests
 
 # TypeScript
 cd src/qmd-typescript && bun install
 bun test  # 700+ tests
+
+# E2E Demo
+python3 scripts/e2e-demo.py  # 18 checks
 ```
 
 ## 关键文件
 
-### 修改文件 (本次 Session 2)
-- `src/qmd-rust/src/store/lance_backend/lance_backend.rs` — LanceDB 完整实现
-- `src/qmd-rust/Cargo.toml` — 添加 lance-index 依赖
-- `src/qmd-go/internal/mcp/server.go` — Go MCP Server tools/call
-- `src/qmd-go/internal/cli/mcp.go` — CLI 集成 mcp.RunServer()
-- `src/qmd-python/src/mcp/server.py` — Python MCP Server tools/call
+### 新增文件 (Session 3)
+- `src/qmd-go/internal/mcp/server_test.go` — Go MCP 集成测试
+- `src/qmd-python/src/mcp/middleware.py` — Python 审计中间件
+- `src/qmd-rust/src/mcp/middleware.rs` — Rust 审计中间件
+- `scripts/e2e-demo.py` — E2E Demo 脚本 (18 checks)
+
+### 修改文件 (Session 3)
+- `src/qmd-go/internal/mcp/server.go` — 添加 StreamTap + DryRun
+- `src/qmd-python/src/mcp/server.py` — 集成 AuditMiddleware

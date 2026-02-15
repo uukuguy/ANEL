@@ -1,5 +1,56 @@
 # QMD 多语言实现 - 工作日志
 
+## 2026-02-16 (Session 3)
+
+### 完成的工作
+
+#### P1: MCP Server 集成测试
+
+1. **Go MCP 集成测试** (`src/qmd-go/internal/mcp/server_test.go`)
+   - 17 个测试覆盖全部 5 个工具 (search, vsearch, query, get, status)
+   - JSON-RPC 2.0 格式验证、ID 保留、错误处理
+   - 含 inputSchema 验证、未知方法/工具处理
+
+2. **Python MCP 集成测试** (`tests/test_mcp_server.py`)
+   - 33 个测试，同等覆盖范围
+   - 含 edge case: 空查询、缺失参数、不存在的文件
+
+#### P3: 安全闭环 (三语言)
+
+3. **Stream Tap 审计日志**
+   - Rust: `src/qmd-rust/src/mcp/middleware.rs` — StreamTap NDJSON 审计到 stderr
+   - Go: `src/qmd-go/internal/mcp/server.go` — StreamTap + AuditRecord struct
+   - Python: `src/qmd-python/src/mcp/middleware.py` — AuditMiddleware 类
+
+4. **Identity Propagation**
+   - 三语言从 `AGENT_IDENTITY_TOKEN` 环境变量提取身份
+   - 注入 MCP tool call 上下文，审计记录包含 identity 字段
+
+5. **Dry-Run Interceptor**
+   - 三语言检查 `AGENT_DRY_RUN` 环境变量
+   - 返回 `[DRY-RUN] Would execute tool '...'` 预览，无副作用
+
+#### P2: 端到端 Demo 场景
+
+6. **E2E Demo 脚本** (`scripts/e2e-demo.py`)
+   - 18/18 checks 全部通过
+   - 5 阶段: Discovery → Rehearsal → Execution → Error Recovery → Identity
+   - Python: MockStore 进程内测试
+   - Go: `go test` 子进程验证 (含 audit + dry-run)
+
+### 修改的文件
+
+| 文件 | 更改类型 |
+|------|----------|
+| src/qmd-rust/src/mcp/middleware.rs | 新增 |
+| src/qmd-go/internal/mcp/server.go | 修改 |
+| src/qmd-go/internal/mcp/server_test.go | 新增 |
+| src/qmd-python/src/mcp/server.py | 修改 |
+| src/qmd-python/src/mcp/middleware.py | 新增 |
+| scripts/e2e-demo.py | 新增 |
+| scripts/demo-e2e.sh | 新增 |
+| docs/dev/NEXT_SESSION_GUIDE.md | 修改 |
+
 ## 2026-02-13
 
 ### 完成的工作

@@ -1,9 +1,32 @@
 """MCP server for QMD."""
 
 import json
+import os
 import sys
+import time
 from pathlib import Path
 from typing import Optional
+
+
+class StreamTap:
+    """Audit layer that logs every tool invocation as NDJSON to stderr."""
+
+    def __init__(self):
+        self.identity = os.environ.get("AGENT_IDENTITY_TOKEN")
+        self.trace_id = os.environ.get("AGENT_TRACE_ID") or f"qmd-{int(time.time() * 1e9):x}"
+
+    def log(self, tool_name: str, args_summary: str, status: str, duration_ms: int) -> None:
+        record = {
+            "type": "audit",
+            "timestamp": int(time.time() * 1000),
+            "tool": tool_name,
+            "trace_id": self.trace_id,
+            "identity": self.identity,
+            "args": args_summary,
+            "status": status,
+            "duration_ms": duration_ms,
+        }
+        print(json.dumps(record), file=sys.stderr, flush=True)
 
 
 class McpServer:
@@ -12,6 +35,9 @@ class McpServer:
     def __init__(self, store=None, config=None):
         self.store = store
         self.config = config
+        self._tap = StreamTap()
+        dry_run = os.environ.get("AGENT_DRY_RUN", "")
+        self._dry_run = dry_run in ("1", "true")
 
     def handle_message(self, message: dict) -> Optional[dict]:
         """Handle incoming MCP message."""
@@ -111,38 +137,44 @@ class McpServer:
         params = message.get("params", {})
         tool_name = params.get("name", "")
         args = params.get("arguments", {})
+        args_summary = json.dumps(args)
 
         content = ""
         is_error = False
 
-        try:
-            if tool_name == "search":
-                content = self._tool_search(args)
-            elif tool_name == "vsearch":
-                content = self._tool_vsearch(args)
-            elif tool_name == "query":
-                content = self._tool_query(args)
-            elif tool_name == "get":
-                content = self._tool_get(args)
-            elif tool_name == "status":
-                content = self._tool_status()
-            else:
-                content = f"Unknown tool: {tool_name}"
+        # Dry-run interceptor
+        if self._dry_run:
+            self._tap.log(tool_name, args_summary, "dry-run", 0)
+            content = f"[DRY-RUN] Would execute tool '{tool_name}' with args: {args_summary}"
+        else:
+            start = time.time()
+            try:
+                if tool_name == "search":
+                    content = self._tool_search(args)
+                elif tool_name == "vsearch":
+                    content = self._tool_vsearch(args)
+                elif tool_name == "query":
+                    content = self._tool_query(args)
+                elif tool_name == "get":
+                    content = self._tool_get(args)
+                elif tool_name == "status":
+                    content = self._tool_status()
+                else:
+                    content = f"Unknown tool: {tool_name}"
+                    is_error = True
+            except Exception as e:
+                content = f"Error: {e}"
                 is_error = True
-        except Exception as e:
-            content = f"Error: {e}"
-            is_error = True
+
+            duration_ms = int((time.time() - start) * 1000)
+            status = "error" if is_error else "ok"
+            self._tap.log(tool_name, args_summary, status, duration_ms)
 
         return {
             "jsonrpc": "2.0",
             "id": msg_id,
             "result": {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": content,
-                    }
-                ],
+                "content": [{"type": "text", "text": content}],
                 "isError": is_error,
             },
         }

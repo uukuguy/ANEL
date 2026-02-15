@@ -1,3 +1,4 @@
+use crate::anel::{self, TraceContext};
 use crate::cli::McpArgs;
 use crate::config::Config;
 use crate::llm::Router;
@@ -14,6 +15,44 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
 use std::convert::Infallible;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+// ── Stream Tap (Audit Layer) ─────────────────────────────────────
+
+/// Audit logger that records every MCP tool invocation as NDJSON to stderr.
+#[derive(Clone, Debug)]
+struct StreamTap {
+    identity: Option<String>,
+    trace_id: String,
+}
+
+impl StreamTap {
+    fn new() -> Self {
+        let ctx = TraceContext::from_env();
+        Self {
+            identity: std::env::var(anel::env::IDENTITY_TOKEN).ok(),
+            trace_id: ctx.get_or_generate_trace_id(),
+        }
+    }
+
+    fn log(&self, tool_name: &str, args_summary: &str, status: &str, duration_ms: u64) {
+        let timestamp_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let record = serde_json::json!({
+            "type": "audit",
+            "timestamp": timestamp_ms,
+            "tool": tool_name,
+            "trace_id": self.trace_id,
+            "X-Agent-Identity": self.identity,
+            "args": args_summary,
+            "status": status,
+            "duration_ms": duration_ms,
+        });
+        eprintln!("{}", serde_json::to_string(&record).unwrap_or_default());
+    }
+}
 
 // ── Parameter types ──────────────────────────────────────────────
 
@@ -44,6 +83,23 @@ pub struct QmdMcpServer {
     store: Arc<Mutex<Store>>,
     llm: Arc<tokio::sync::Mutex<Router>>,
     tool_router: ToolRouter<Self>,
+    tap: StreamTap,
+    dry_run: bool,
+}
+
+// ── Dry-run / audit helpers (outside #[tool_router] block) ───────
+
+impl QmdMcpServer {
+    fn check_dry_run(&self, tool_name: &str, args: &str) -> Option<CallToolResult> {
+        if self.dry_run {
+            self.tap.log(tool_name, args, "dry-run", 0);
+            Some(CallToolResult::success(vec![Content::text(
+                format!("[DRY-RUN] Would execute tool '{}' with args: {}", tool_name, args),
+            )]))
+        } else {
+            None
+        }
+    }
 }
 
 #[tool_router]
@@ -51,10 +107,16 @@ impl QmdMcpServer {
     pub fn new(config: Config) -> Result<Self> {
         let store = Store::new(&config)?;
         let llm = Router::new(&config)?;
+        let dry_run = std::env::var(anel::env::DRY_RUN)
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        let tap = StreamTap::new();
         Ok(Self {
             store: Arc::new(Mutex::new(store)),
             llm: Arc::new(tokio::sync::Mutex::new(llm)),
             tool_router: Self::tool_router(),
+            tap,
+            dry_run,
         })
     }
 
@@ -64,18 +126,34 @@ impl QmdMcpServer {
         params: Parameters<SearchParams>,
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
+        let args_summary = serde_json::to_string(&serde_json::json!({
+            "query": &p.query, "limit": p.limit, "collection": &p.collection
+        })).unwrap_or_default();
+
+        if let Some(result) = self.check_dry_run("search", &args_summary) {
+            return Ok(result);
+        }
+
+        let start = Instant::now();
         let options = make_search_options(&p);
         let store = self.store.lock().map_err(|e| {
+            self.tap.log("search", &args_summary, "error", start.elapsed().as_millis() as u64);
             McpError::internal_error(format!("Store lock failed: {e}"), None)
         })?;
         match store.bm25_search(&p.query, options) {
-            Ok(results) => Ok(CallToolResult::success(vec![Content::text(
-                format_search_results(&results),
-            )])),
-            Err(e) => Err(McpError::internal_error(
-                format!("BM25 search failed: {e}"),
-                None,
-            )),
+            Ok(results) => {
+                self.tap.log("search", &args_summary, "ok", start.elapsed().as_millis() as u64);
+                Ok(CallToolResult::success(vec![Content::text(
+                    format_search_results(&results),
+                )]))
+            }
+            Err(e) => {
+                self.tap.log("search", &args_summary, "error", start.elapsed().as_millis() as u64);
+                Err(McpError::internal_error(
+                    format!("BM25 search failed: {e}"),
+                    None,
+                ))
+            }
         }
     }
 
@@ -85,12 +163,22 @@ impl QmdMcpServer {
         params: Parameters<SearchParams>,
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
+        let args_summary = serde_json::to_string(&serde_json::json!({
+            "query": &p.query, "limit": p.limit, "collection": &p.collection
+        })).unwrap_or_default();
+
+        if let Some(result) = self.check_dry_run("vsearch", &args_summary) {
+            return Ok(result);
+        }
+
+        let start = Instant::now();
         let options = make_search_options(&p);
 
         // Step 1: Generate embedding (async, no store lock)
         let embedding = {
             let llm = self.llm.lock().await;
             llm.embed(&[p.query.as_str()]).await.map_err(|e| {
+                self.tap.log("vsearch", &args_summary, "error", start.elapsed().as_millis() as u64);
                 McpError::internal_error(format!("Embedding failed: {e}"), None)
             })?
         };
@@ -98,16 +186,23 @@ impl QmdMcpServer {
 
         // Step 2: Sync vector search with pre-computed embedding
         let store = self.store.lock().map_err(|e| {
+            self.tap.log("vsearch", &args_summary, "error", start.elapsed().as_millis() as u64);
             McpError::internal_error(format!("Store lock failed: {e}"), None)
         })?;
         match store.vector_search_with_embedding(query_vector, options) {
-            Ok(results) => Ok(CallToolResult::success(vec![Content::text(
-                format_search_results(&results),
-            )])),
-            Err(e) => Err(McpError::internal_error(
-                format!("Vector search failed: {e}"),
-                None,
-            )),
+            Ok(results) => {
+                self.tap.log("vsearch", &args_summary, "ok", start.elapsed().as_millis() as u64);
+                Ok(CallToolResult::success(vec![Content::text(
+                    format_search_results(&results),
+                )]))
+            }
+            Err(e) => {
+                self.tap.log("vsearch", &args_summary, "error", start.elapsed().as_millis() as u64);
+                Err(McpError::internal_error(
+                    format!("Vector search failed: {e}"),
+                    None,
+                ))
+            }
         }
     }
 
@@ -117,12 +212,22 @@ impl QmdMcpServer {
         params: Parameters<SearchParams>,
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
+        let args_summary = serde_json::to_string(&serde_json::json!({
+            "query": &p.query, "limit": p.limit, "collection": &p.collection
+        })).unwrap_or_default();
+
+        if let Some(result) = self.check_dry_run("query", &args_summary) {
+            return Ok(result);
+        }
+
+        let start = Instant::now();
         let options = make_search_options(&p);
 
         // Step 1: Query expansion (sync LLM call)
         let expanded_queries = {
             let llm = self.llm.lock().await;
             llm.expand_query(&p.query).map_err(|e| {
+                self.tap.log("query", &args_summary, "error", start.elapsed().as_millis() as u64);
                 McpError::internal_error(format!("Query expansion failed: {e}"), None)
             })?
         };
@@ -130,6 +235,7 @@ impl QmdMcpServer {
         // Step 2: BM25 retrieval for all expanded queries
         let all_bm25_results = {
             let store = self.store.lock().map_err(|e| {
+                self.tap.log("query", &args_summary, "error", start.elapsed().as_millis() as u64);
                 McpError::internal_error(format!("Store lock failed: {e}"), None)
             })?;
             let mut results = Vec::new();
@@ -148,14 +254,17 @@ impl QmdMcpServer {
             let embedding = {
                 let llm = self.llm.lock().await;
                 llm.embed(&[p.query.as_str()]).await.map_err(|e| {
+                    self.tap.log("query", &args_summary, "error", start.elapsed().as_millis() as u64);
                     McpError::internal_error(format!("Embedding failed: {e}"), None)
                 })?
             };
             let query_vector = &embedding.embeddings[0];
             let store = self.store.lock().map_err(|e| {
+                self.tap.log("query", &args_summary, "error", start.elapsed().as_millis() as u64);
                 McpError::internal_error(format!("Store lock failed: {e}"), None)
             })?;
             store.vector_search_with_embedding(query_vector, options.clone()).map_err(|e| {
+                self.tap.log("query", &args_summary, "error", start.elapsed().as_millis() as u64);
                 McpError::internal_error(format!("Vector search failed: {e}"), None)
             })?
         };
@@ -189,6 +298,7 @@ impl QmdMcpServer {
             candidates
         };
 
+        self.tap.log("query", &args_summary, "ok", start.elapsed().as_millis() as u64);
         Ok(CallToolResult::success(vec![Content::text(
             format_search_results(&final_results),
         )]))
@@ -200,6 +310,15 @@ impl QmdMcpServer {
         params: Parameters<GetParams>,
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
+        let args_summary = serde_json::to_string(&serde_json::json!({
+            "path": &p.path, "from": p.from, "limit": p.limit
+        })).unwrap_or_default();
+
+        if let Some(result) = self.check_dry_run("get", &args_summary) {
+            return Ok(result);
+        }
+
+        let start = Instant::now();
         let from = p.from.unwrap_or(0);
         let limit = p.limit.unwrap_or(50);
 
@@ -207,29 +326,41 @@ impl QmdMcpServer {
             Ok(content) => {
                 let lines: Vec<&str> = content.lines().collect();
                 let total = lines.len();
-                let start = from.min(total);
-                let end = (start + limit).min(total);
-                let selected = &lines[start..end];
+                let line_start = from.min(total);
+                let end = (line_start + limit).min(total);
+                let selected = &lines[line_start..end];
                 let text = format!(
                     "File: {} (lines {}-{} of {})\n\n{}",
                     p.path,
-                    start + 1,
+                    line_start + 1,
                     end,
                     total,
                     selected.join("\n")
                 );
+                self.tap.log("get", &args_summary, "ok", start.elapsed().as_millis() as u64);
                 Ok(CallToolResult::success(vec![Content::text(text)]))
             }
-            Err(e) => Err(McpError::internal_error(
-                format!("Failed to read file '{}': {e}", p.path),
-                None,
-            )),
+            Err(e) => {
+                self.tap.log("get", &args_summary, "error", start.elapsed().as_millis() as u64);
+                Err(McpError::internal_error(
+                    format!("Failed to read file '{}': {e}", p.path),
+                    None,
+                ))
+            }
         }
     }
 
     #[tool(description = "Show index statistics including document counts and collection info")]
     async fn status(&self) -> Result<CallToolResult, McpError> {
+        let args_summary = "{}".to_string();
+
+        if let Some(result) = self.check_dry_run("status", &args_summary) {
+            return Ok(result);
+        }
+
+        let start = Instant::now();
         let store = self.store.lock().map_err(|e| {
+            self.tap.log("status", &args_summary, "error", start.elapsed().as_millis() as u64);
             McpError::internal_error(format!("Store lock failed: {e}"), None)
         })?;
         match store.get_stats() {
@@ -248,12 +379,16 @@ impl QmdMcpServer {
                         text.push_str(&format!("  {}: {} docs\n", name, count));
                     }
                 }
+                self.tap.log("status", &args_summary, "ok", start.elapsed().as_millis() as u64);
                 Ok(CallToolResult::success(vec![Content::text(text)]))
             }
-            Err(e) => Err(McpError::internal_error(
-                format!("Failed to get stats: {e}"),
-                None,
-            )),
+            Err(e) => {
+                self.tap.log("status", &args_summary, "error", start.elapsed().as_millis() as u64);
+                Err(McpError::internal_error(
+                    format!("Failed to get stats: {e}"),
+                    None,
+                ))
+            }
         }
     }
 }

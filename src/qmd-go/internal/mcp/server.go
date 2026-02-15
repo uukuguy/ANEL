@@ -6,20 +6,82 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/qmd/qmd-go/internal/config"
 	"github.com/qmd/qmd-go/internal/store"
 )
 
+// AuditRecord represents a single audit log entry for MCP tool invocations.
+type AuditRecord struct {
+	Type       string `json:"type"`
+	Timestamp  int64  `json:"timestamp"`
+	Tool       string `json:"tool"`
+	TraceID    string `json:"trace_id"`
+	Identity   string `json:"identity,omitempty"`
+	Args       string `json:"args"`
+	Status     string `json:"status"`
+	DurationMs int64  `json:"duration_ms"`
+}
+
+// StreamTap is an audit layer that logs every MCP tool invocation to stderr as NDJSON.
+type StreamTap struct {
+	Identity string
+	TraceID  string
+}
+
+// NewStreamTap creates a StreamTap, reading identity and trace ID from environment.
+func NewStreamTap() *StreamTap {
+	identity := os.Getenv("AGENT_IDENTITY_TOKEN")
+	traceID := os.Getenv("AGENT_TRACE_ID")
+	if traceID == "" {
+		traceID = fmt.Sprintf("qmd-%d", time.Now().UnixNano())
+	}
+	return &StreamTap{Identity: identity, TraceID: traceID}
+}
+
+// Log writes an NDJSON audit record to stderr.
+func (t *StreamTap) Log(toolName, argsSummary, status string, durationMs int64) {
+	record := AuditRecord{
+		Type:       "audit",
+		Timestamp:  time.Now().UnixMilli(),
+		Tool:       toolName,
+		TraceID:    t.TraceID,
+		Identity:   t.Identity,
+		Args:       argsSummary,
+		Status:     status,
+		DurationMs: durationMs,
+	}
+	data, _ := json.Marshal(record)
+	fmt.Fprintln(os.Stderr, string(data))
+}
+
 // Server holds the MCP server state
 type Server struct {
 	store  *store.Store
 	config *config.Config
+	tap    *StreamTap
+	dryRun bool
 }
 
 // NewServer creates a new MCP server
 func NewServer(s *store.Store, cfg *config.Config) *Server {
-	return &Server{store: s, config: cfg}
+	dryRun := os.Getenv("AGENT_DRY_RUN")
+	return &Server{
+		store:  s,
+		config: cfg,
+		tap:    NewStreamTap(),
+		dryRun: dryRun == "1" || dryRun == "true",
+	}
+}
+
+// checkDryRun returns a dry-run message if dry-run mode is active.
+func (srv *Server) checkDryRun(toolName, argsSummary string) (string, bool, bool) {
+	if srv.dryRun {
+		srv.tap.Log(toolName, argsSummary, "dry-run", 0)
+		return fmt.Sprintf("[DRY-RUN] Would execute tool '%s' with args: %s", toolName, argsSummary), false, true
+	}
+	return "", false, false
 }
 
 // RunServer runs the MCP server (backward-compatible entry point)
@@ -193,15 +255,70 @@ func (srv *Server) handleToolsCall(id interface{}, message map[string]interface{
 
 	switch toolName {
 	case "search":
-		content, isError = srv.toolSearch(args)
+		argsSummary, _ := json.Marshal(args)
+		if msg, _, isDry := srv.checkDryRun("search", string(argsSummary)); isDry {
+			content = msg
+		} else {
+			start := time.Now()
+			content, isError = srv.toolSearch(args)
+			status := "ok"
+			if isError {
+				status = "error"
+			}
+			srv.tap.Log("search", string(argsSummary), status, time.Since(start).Milliseconds())
+		}
 	case "vsearch":
-		content, isError = srv.toolVSearch(args)
+		argsSummary, _ := json.Marshal(args)
+		if msg, _, isDry := srv.checkDryRun("vsearch", string(argsSummary)); isDry {
+			content = msg
+		} else {
+			start := time.Now()
+			content, isError = srv.toolVSearch(args)
+			status := "ok"
+			if isError {
+				status = "error"
+			}
+			srv.tap.Log("vsearch", string(argsSummary), status, time.Since(start).Milliseconds())
+		}
 	case "query":
-		content, isError = srv.toolQuery(args)
+		argsSummary, _ := json.Marshal(args)
+		if msg, _, isDry := srv.checkDryRun("query", string(argsSummary)); isDry {
+			content = msg
+		} else {
+			start := time.Now()
+			content, isError = srv.toolQuery(args)
+			status := "ok"
+			if isError {
+				status = "error"
+			}
+			srv.tap.Log("query", string(argsSummary), status, time.Since(start).Milliseconds())
+		}
 	case "get":
-		content, isError = srv.toolGet(args)
+		argsSummary, _ := json.Marshal(args)
+		if msg, _, isDry := srv.checkDryRun("get", string(argsSummary)); isDry {
+			content = msg
+		} else {
+			start := time.Now()
+			content, isError = srv.toolGet(args)
+			status := "ok"
+			if isError {
+				status = "error"
+			}
+			srv.tap.Log("get", string(argsSummary), status, time.Since(start).Milliseconds())
+		}
 	case "status":
-		content, isError = srv.toolStatus()
+		argsSummary := "{}"
+		if msg, _, isDry := srv.checkDryRun("status", argsSummary); isDry {
+			content = msg
+		} else {
+			start := time.Now()
+			content, isError = srv.toolStatus()
+			status := "ok"
+			if isError {
+				status = "error"
+			}
+			srv.tap.Log("status", argsSummary, status, time.Since(start).Milliseconds())
+		}
 	default:
 		content = fmt.Sprintf("Unknown tool: %s", toolName)
 		isError = true
