@@ -1,8 +1,8 @@
 # Next Session Guide - QMD Development
 
 **Last Updated**: 2026-02-15
-**Current Phase**: Phase 15 Complete ✅
-**Project Status**: ALL PHASES COMPLETED 🎉
+**Current Phase**: Phase 16 Hyper-Shell 模式探索
+**Project Status**: 进行中 🚧
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
 
@@ -982,3 +982,66 @@ qmd agent --query "how to configure embedding"
 1. 统一三版本架构和配置
 2. Go/Python MCP HTTP Server 实现
 3. 向量后端增强（Qdrant）
+
+---
+
+## 🎯 Phase 16: Hyper-Shell 模式探索 ✅ COMPLETED (2026-02-15)
+
+### 完成内容
+
+1. **当前架构分析** ✅
+   - 分析了 QMD 现有的 CLI、MCP Stdio、MCP HTTP 三种运行模式
+   - 确认了 MCP HTTP Server 已支持模型缓存 (~3s 首次加载, ~10ms 查询)
+   - 识别了 5 个 MCP 工具: search, vsearch, query, get, status
+
+2. **Wasm 插件系统评估** ✅
+   - 对比了 wasmtime vs wasmer 两种主流 Wasm 运行时
+   - 推荐选择 **wasmtime** (Bytecode Alliance 开发，Cranelift JIT，文档丰富)
+   - 定义了插件扩展场景: 自定义评分器、预处理管道、后处理过滤器等
+
+3. **Server 模式架构设计** ✅
+   - 设计了完整的 Server 架构: HTTP + Middleware + Core Services + Model
+   - 定义了 REST API 端点: /health, /search, /vsearch, /query, /mcp, /plugins
+   - 规划了实现路线图: Phase 3.1 (基础架构) → Phase 3.2 (插件系统) → Phase 3.3 (可观测性)
+
+4. **技术选型** ✅
+   - HTTP 框架: Axum + Tower
+   - Wasm 运行时: Wasmtime
+   - 插件接口: WASI + WIT
+   - 指标: metrics + prometheus
+
+5. **独立 HTTP Server 实现** ✅ (2026-02-15)
+   - 新增 `server` 模块: `src/server/mod.rs`, `handlers.rs`, `middleware.rs`
+   - 新增 CLI 命令: `qmd server --host --port --workers`
+   - 实现 REST API 端点:
+     - `GET /health` - 健康检查
+     - `GET /collections` - 列出集合
+     - `GET /stats` - 索引统计
+     - `POST /search` - BM25 搜索
+     - `POST /vsearch` - 向量搜索
+     - `POST /query` - 混合搜索
+     - `GET /documents/:path` - 获取文档
+     - `POST /mcp` - MCP 协议 (待实现)
+   - 添加依赖: urlencoding, tracing, tracing-subscriber
+   - 构建状态: ✅ 成功 (无 llama-cpp feature)
+
+### 输出文档
+
+- `docs/design/HYPER_SHELL_DESIGN.md` - 完整的 Hyper-Shell 模式架构设计文档
+
+### 后续工作 (可选)
+
+1. **Phase 3.1: Server 基础架构完善**
+   - 完善混合搜索实现 (当前委托给 vsearch)
+   - 添加中间件层 (rate limit, auth)
+   - 添加 MCP 协议完整实现
+
+2. **Phase 3.2: Wasm 插件系统** (3-4 周)
+   - WIT 接口定义
+   - Wasmtime 集成
+   - 插件管理 CLI
+
+3. **Phase 3.3: 可观测性** (1-2 周)
+   - 日志系统 (tracing)
+   - 指标收集 (prometheus)
+   - 分布式追踪 (opentelemetry)

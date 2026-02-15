@@ -6,4 +6,5 @@ pub mod config;
 pub mod formatter;
 pub mod llm;
 pub mod mcp;
+pub mod server;
 pub mod store;

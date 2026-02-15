@@ -10,6 +10,7 @@ mod config;
 mod formatter;
 mod llm;
 mod mcp;
+mod server;
 mod store;
 
 fn main() -> Result<()> {
@@ -73,6 +74,14 @@ fn main() -> Result<()> {
         }
         Commands::Mcp(cmd) => {
             mcp::run_server(cmd, &config)?;
+        }
+        Commands::Server(cmd) => {
+            let server_config = server::ServerConfig {
+                host: cmd.host.clone(),
+                port: cmd.port,
+                workers: cmd.workers,
+            };
+            server::run_server(&server_config, &config)?;
         }
         Commands::Agent(cmd) => {
             let store = store::Store::new(&config)?;

@@ -96,6 +96,9 @@ pub enum Commands {
     /// Run as MCP server
     Mcp(McpArgs),
 
+    /// Run as standalone HTTP server
+    Server(ServerArgs),
+
     /// Run in agent mode
     Agent(AgentArgs),
 }
@@ -335,6 +338,19 @@ pub struct McpArgs {
     /// Port for SSE
     #[arg(long, default_value = "8080")]
     pub port: u16,
+}
+
+#[derive(Args, Debug)]
+pub struct ServerArgs {
+    /// Host to bind to
+    #[arg(long, default_value = "0.0.0.0")]
+    pub host: String,
+    /// Port to listen on
+    #[arg(long, default_value = "8080")]
+    pub port: u16,
+    /// Number of worker threads
+    #[arg(long, default_value = "4")]
+    pub workers: usize,
 }
 
 #[derive(Args, Debug)]

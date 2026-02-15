@@ -1,0 +1,132 @@
+// QMD HTTP Server module
+// Provides independent HTTP API server with REST endpoints
+
+pub mod handlers;
+pub mod middleware;
+
+use crate::config::Config;
+use crate::llm::Router;
+use crate::store::Store;
+use anyhow::Result;
+use axum::Router as AxumRouter;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tower::ServiceExt;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+/// QMD HTTP Server state
+#[derive(Clone)]
+pub struct ServerState {
+    pub store: Arc<Mutex<Store>>,
+    pub llm: Arc<Mutex<Router>>,
+    pub config: Config,
+}
+
+/// Server configuration
+#[derive(Debug, Clone)]
+pub struct ServerConfig {
+    pub host: String,
+    pub port: u16,
+    pub workers: usize,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            host: "0.0.0.0".to_string(),
+            port: 8080,
+            workers: 4,
+        }
+    }
+}
+
+/// Initialize logging for the server
+pub fn init_logging() {
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "qmd_server=debug,tower=warn,axum=warn".into());
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+}
+
+/// Run the HTTP server
+pub fn run_server(config: &ServerConfig, app_config: &Config) -> Result<()> {
+    // Initialize runtime
+    let rt = tokio::runtime::Runtime::new()?;
+
+    rt.block_on(async {
+        // Create server state
+        let store = Store::new(app_config)?;
+        let llm = Router::new(app_config)?;
+
+        let state = ServerState {
+            store: Arc::new(Mutex::new(store)),
+            llm: Arc::new(Mutex::new(llm)),
+            config: app_config.clone(),
+        };
+
+        // Build router with all routes
+        let app = build_router(state)?;
+
+        // Bind address
+        let addr: SocketAddr = format!("{}:{}", config.host, config.port)
+            .parse()
+            .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], config.port)));
+
+        // Start server
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        tracing::info!("QMD HTTP Server listening on http://{}", addr);
+        tracing::info!("API endpoints available:");
+        tracing::info!("  GET  /health          - Health check");
+        tracing::info!("  GET  /collections     - List collections");
+        tracing::info!("  POST /search          - BM25 search");
+        tracing::info!("  POST /vsearch         - Vector search");
+        tracing::info!("  POST /query           - Hybrid search");
+        tracing::info!("  GET  /stats           - Index statistics");
+        tracing::info!("  GET  /documents/:path - Get document content");
+        tracing::info!("  POST /mcp             - MCP protocol (JSON-RPC)");
+
+        axum::serve(listener, app).await?;
+        Ok::<(), anyhow::Error>(())
+    })
+}
+
+/// Build the router with all endpoints
+fn build_router(state: ServerState) -> Result<AxumRouter> {
+    use axum::routing::{get, post};
+
+    let app = AxumRouter::new()
+        // Health and info
+        .route("/health", get(handlers::health))
+        .route("/collections", get(handlers::list_collections))
+        .route("/stats", get(handlers::stats))
+        // Search endpoints
+        .route("/search", post(handlers::search))
+        .route("/vsearch", post(handlers::vsearch))
+        .route("/query", post(handlers::query))
+        // Document retrieval
+        .route("/documents/:path", get(handlers::get_document))
+        // MCP protocol
+        .route("/mcp", post(handlers::mcp))
+        .with_state(state);
+
+    Ok(app)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_server_config_default() {
+        let config = ServerConfig::default();
+        assert_eq!(config.port, 8080);
+        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.workers, 4);
+    }
+}
