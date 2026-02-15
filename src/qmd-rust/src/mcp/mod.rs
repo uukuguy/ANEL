@@ -269,7 +269,25 @@ impl ServerHandler for QmdMcpServer {
 
 // ── Public entry point ───────────────────────────────────────────
 
+use crate::anel::AnelSpec;
+
 pub fn run_server(args: &McpArgs, config: &Config) -> Result<()> {
+    // Handle --emit-spec: output ANEL specification and exit
+    if args.emit_spec {
+        let spec = AnelSpec::mcp();
+        println!("{}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+
+    // Handle --dry-run: validate parameters without executing
+    if args.dry_run {
+        println!("[DRY-RUN] Would execute mcp server with:");
+        println!("  transport: {}", args.transport);
+        println!("  port: {}", args.port);
+        println!("  format: {}", args.format);
+        return Ok(());
+    }
+
     match args.transport.as_str() {
         "stdio" => run_stdio_server(config),
         "http" | "sse" => run_http_server(args, config),

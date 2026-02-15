@@ -164,6 +164,15 @@ pub struct CollectionRenameArgs {
 pub struct ContextArgs {
     #[command(subcommand)]
     pub command: ContextCommands,
+    /// Output format: cli, json, ndjson
+    #[arg(long, default_value = "cli")]
+    pub format: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
+    /// Dry-run mode: validate parameters without executing
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -342,6 +351,15 @@ pub struct McpArgs {
     /// Port for SSE
     #[arg(long, default_value = "8080")]
     pub port: u16,
+    /// Output format: cli, json, ndjson
+    #[arg(long, default_value = "cli")]
+    pub format: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
+    /// Dry-run mode: validate parameters without executing
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Debug)]

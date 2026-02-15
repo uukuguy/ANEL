@@ -1,3 +1,4 @@
+use crate::anel::AnelSpec;
 use crate::cli::{ContextCommands, ContextAddArgs, ContextRemoveArgs};
 use crate::config::Config;
 use crate::store::Store;
@@ -9,6 +10,36 @@ pub fn handle(
     cmd: &crate::cli::ContextArgs,
     config: &mut Config,
 ) -> Result<()> {
+    // Handle --emit-spec: output ANEL specification and exit
+    if cmd.emit_spec {
+        let spec = AnelSpec::context();
+        println!("{}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+
+    // Handle --dry-run: validate parameters without executing
+    if cmd.dry_run {
+        let action = match &cmd.command {
+            ContextCommands::Add(args) => {
+                println!("[DRY-RUN] Would execute context add with:");
+                println!("  path: {:?}", args.path);
+                println!("  description: {}", args.description);
+                "add"
+            }
+            ContextCommands::List => {
+                println!("[DRY-RUN] Would execute context list");
+                "list"
+            }
+            ContextCommands::Rm(args) => {
+                println!("[DRY-RUN] Would execute context rm with:");
+                println!("  path: {}", args.path);
+                "rm"
+            }
+        };
+        println!("  action: {}", action);
+        return Ok(());
+    }
+
     match &cmd.command {
         ContextCommands::Add(args) => add_context(args, config),
         ContextCommands::List => list_contexts(config),

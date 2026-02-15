@@ -334,20 +334,68 @@ def collection_remove(name: str) -> None:
 def context_add(
     path: Optional[str] = typer.Argument(None, help="Path (default: current directory)"),
     description: str = typer.Option(..., "-d", "--description", help="Description"),
+    emit_spec_cmd: bool = typer.Option(False, "--emit-spec", hidden=True),
+    dry_run_cmd: bool = typer.Option(False, "--dry-run", hidden=True),
 ) -> None:
     """Add a context."""
+    from ..anel.spec import context_spec
+    from .app import check_emit_spec, check_dry_run
+
+    if emit_spec_cmd or check_emit_spec("context"):
+        spec = context_spec()
+        print(spec.model_dump_json(indent=2))
+        return
+
+    if dry_run_cmd or check_dry_run():
+        print("[DRY-RUN] Would execute context add with:")
+        print(f"  path: {path}")
+        print(f"  description: {description}")
+        return
+
     print(f"Context added: {description}")
 
 
 @context_cmd.command("list")
-def context_list() -> None:
+def context_list(
+    emit_spec_cmd: bool = typer.Option(False, "--emit-spec", hidden=True),
+    dry_run_cmd: bool = typer.Option(False, "--dry-run", hidden=True),
+) -> None:
     """List contexts."""
+    from ..anel.spec import context_spec
+    from .app import check_emit_spec, check_dry_run
+
+    if emit_spec_cmd or check_emit_spec("context"):
+        spec = context_spec()
+        print(spec.model_dump_json(indent=2))
+        return
+
+    if dry_run_cmd or check_dry_run():
+        print("[DRY-RUN] Would execute context list")
+        return
+
     print("Contexts:")
 
 
 @context_cmd.command("rm")
-def context_rm(path: str) -> None:
+def context_rm(
+    path: str,
+    emit_spec_cmd: bool = typer.Option(False, "--emit-spec", hidden=True),
+    dry_run_cmd: bool = typer.Option(False, "--dry-run", hidden=True),
+) -> None:
     """Remove a context."""
+    from ..anel.spec import context_spec
+    from .app import check_emit_spec, check_dry_run
+
+    if emit_spec_cmd or check_emit_spec("context"):
+        spec = context_spec()
+        print(spec.model_dump_json(indent=2))
+        return
+
+    if dry_run_cmd or check_dry_run():
+        print("[DRY-RUN] Would execute context rm with:")
+        print(f"  path: {path}")
+        return
+
     print(f"Context '{path}' removed")
 
 
@@ -360,8 +408,24 @@ app.add_typer(context_cmd, name="context", help="Manage contexts")
 def mcp_server(
     transport: str = typer.Option("stdio", "--transport", "-t", help="Transport: stdio, sse"),
     port: int = typer.Option(8080, "--port", "-p", help="Port for SSE transport"),
+    emit_spec_cmd: bool = typer.Option(False, "--emit-spec", hidden=True),
+    dry_run_cmd: bool = typer.Option(False, "--dry-run", hidden=True),
 ) -> None:
     """Run as MCP server."""
+    from ..anel.spec import mcp_spec
+    from .app import check_emit_spec, check_dry_run
+
+    if emit_spec_cmd or check_emit_spec("mcp"):
+        spec = mcp_spec()
+        print(spec.model_dump_json(indent=2))
+        return
+
+    if dry_run_cmd or check_dry_run():
+        print("[DRY-RUN] Would execute mcp server with:")
+        print(f"  transport: {transport}")
+        print(f"  port: {port}")
+        return
+
     from ..mcp.server import run_server
     import asyncio
 

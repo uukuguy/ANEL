@@ -145,6 +145,8 @@ pub struct ErrorResponse {
 
 // ── Handlers ────────────────────────────────────────────────────────
 
+use crate::anel::{AnelSpec, ANEL_VERSION};
+
 /// Health check endpoint
 pub async fn health(State(state): State<ServerState>) -> impl IntoResponse {
     let model_loaded = state.llm.try_lock().is_ok();
@@ -156,6 +158,30 @@ pub async fn health(State(state): State<ServerState>) -> impl IntoResponse {
     };
 
     Json(response)
+}
+
+/// ANEL specification endpoint - returns all command specifications
+pub async fn spec() -> impl IntoResponse {
+    let specs = serde_json::json!({
+        "version": ANEL_VERSION,
+        "commands": {
+            "search": AnelSpec::search(),
+            "vsearch": AnelSpec::vsearch(),
+            "query": AnelSpec::query(),
+            "get": AnelSpec::get(),
+            "multi_get": AnelSpec::multi_get(),
+            "collection": AnelSpec::collection(),
+            "context": AnelSpec::context(),
+            "embed": AnelSpec::embed(),
+            "update": AnelSpec::update(),
+            "status": AnelSpec::status(),
+            "cleanup": AnelSpec::cleanup(),
+            "agent": AnelSpec::agent(),
+            "mcp": AnelSpec::mcp()
+        }
+    });
+
+    Json(specs)
 }
 
 /// List all collections

@@ -394,6 +394,78 @@ func AgentSpec() *AnelSpec {
 	}
 }
 
+// ContextSpec returns the ANEL spec for the context command
+func ContextSpec() *AnelSpec {
+	inputSchema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"action": {"type": "string", "enum": ["add", "list", "rm"]},
+			"path": {"type": "string"},
+			"description": {"type": "string"}
+		},
+		"required": ["action"]
+	}`)
+
+	outputSchema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"contexts": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"properties": {
+						"path": {"type": "string"},
+						"description": {"type": "string"}
+					}
+				}
+			},
+			"action": {"type": "string"}
+		}
+	}`)
+
+	return &AnelSpec{
+		Version:      Version,
+		Command:      "context",
+		InputSchema:  inputSchema,
+		OutputSchema: outputSchema,
+		ErrorCodes: []ErrorCode{
+			ErrorCodeNotFound,
+			ErrorCodeInvalidInput,
+		},
+	}
+}
+
+// McpSpec returns the ANEL spec for the mcp command
+func McpSpec() *AnelSpec {
+	inputSchema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"transport": {"type": "string", "default": "stdio"},
+			"port": {"type": "integer", "default": 8080}
+		}
+	}`)
+
+	outputSchema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"status": {"type": "string"},
+			"transport": {"type": "string"},
+			"port": {"type": "integer"}
+		}
+	}`)
+
+	return &AnelSpec{
+		Version:      Version,
+		Command:      "mcp",
+		InputSchema:  inputSchema,
+		OutputSchema: outputSchema,
+		ErrorCodes: []ErrorCode{
+			ErrorCodeConfigError,
+			ErrorCodeBackendUnavailable,
+		},
+	}
+}
+
 // GetSpecForCommand returns the spec for a specific command
 func GetSpecForCommand(command string) *AnelSpec {
 	switch command {
@@ -407,6 +479,8 @@ func GetSpecForCommand(command string) *AnelSpec {
 		return GetSpec()
 	case "collection":
 		return CollectionSpec()
+	case "context":
+		return ContextSpec()
 	case "embed":
 		return EmbedSpec()
 	case "update":
@@ -417,6 +491,8 @@ func GetSpecForCommand(command string) *AnelSpec {
 		return CleanupSpec()
 	case "agent":
 		return AgentSpec()
+	case "mcp":
+		return McpSpec()
 	default:
 		return nil
 	}

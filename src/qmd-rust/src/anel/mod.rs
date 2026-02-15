@@ -691,6 +691,70 @@ impl AnelSpec {
             ],
         }
     }
+
+    /// Get spec for context command
+    pub fn context() -> Self {
+        Self {
+            version: ANEL_VERSION.to_string(),
+            command: "context".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["add", "list", "rm"]},
+                    "path": {"type": "string"},
+                    "description": {"type": "string"}
+                },
+                "required": ["action"]
+            }),
+            output_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "contexts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string"},
+                                "description": {"type": "string"}
+                            }
+                        }
+                    },
+                    "action": {"type": "string"}
+                }
+            }),
+            error_codes: vec![
+                AnelErrorCode::NotFound,
+                AnelErrorCode::InvalidInput,
+            ],
+        }
+    }
+
+    /// Get spec for mcp command
+    pub fn mcp() -> Self {
+        Self {
+            version: ANEL_VERSION.to_string(),
+            command: "mcp".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "transport": {"type": "string", "default": "stdio"},
+                    "port": {"type": "integer", "default": 8080}
+                }
+            }),
+            output_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string"},
+                    "transport": {"type": "string"},
+                    "port": {"type": "integer"}
+                }
+            }),
+            error_codes: vec![
+                AnelErrorCode::ConfigError,
+                AnelErrorCode::BackendUnavailable,
+            ],
+        }
+    }
 }
 
 /// NDJSON output wrapper for streaming

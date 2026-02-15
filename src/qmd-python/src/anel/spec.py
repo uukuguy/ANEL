@@ -355,17 +355,83 @@ def agent_spec() -> AnelSpec:
     )
 
 
+def context_spec() -> AnelSpec:
+    """Return the ANEL spec for the context command."""
+    return AnelSpec(
+        version=VERSION,
+        command="context",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["add", "list", "rm"]},
+                "path": {"type": "string"},
+                "description": {"type": "string"},
+            },
+            "required": ["action"],
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "contexts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "description": {"type": "string"},
+                        },
+                    },
+                },
+                "action": {"type": "string"},
+            },
+        },
+        error_codes=[
+            ErrorCode.NOT_FOUND,
+            ErrorCode.INVALID_INPUT,
+        ],
+    )
+
+
+def mcp_spec() -> AnelSpec:
+    """Return the ANEL spec for the mcp command."""
+    return AnelSpec(
+        version=VERSION,
+        command="mcp",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "transport": {"type": "string", "default": "stdio"},
+                "port": {"type": "integer", "default": 8080},
+            },
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "transport": {"type": "string"},
+                "port": {"type": "integer"},
+            },
+        },
+        error_codes=[
+            ErrorCode.CONFIG_ERROR,
+            ErrorCode.BACKEND_UNAVAILABLE,
+        ],
+    )
+
+
 SPEC_GETTERS = {
     "search": search_spec,
     "vsearch": vsearch_spec,
     "query": query_spec,
     "get": get_spec,
     "collection": collection_spec,
+    "context": context_spec,
     "embed": embed_spec,
     "update": update_spec,
     "status": status_spec,
     "cleanup": cleanup_spec,
     "agent": agent_spec,
+    "mcp": mcp_spec,
 }
 
 

@@ -1100,3 +1100,104 @@ curl http://localhost:8080/metrics
 4. **Phase 3.1 续: 企业级认证** (可选)
    - OAuth2 / JWT 令牌
    - 基于租户的 Rate Limiting
+
+---
+
+## 🎯 ANEL 完整实现收尾 (Rust/Go/Python) ✅ COMPLETED (2026-02-15)
+
+### 完成内容
+
+#### Rust 版本 ✅
+1. **context 命令 ANEL 化**
+   - 添加了 `--emit-spec` 和 `--dry-run` 支持
+   - 修改文件: `src/cli/context.rs`, `src/cli/mod.rs`, `src/anel/mod.rs`
+   - 添加了 `AnelSpec::context()` 方法
+
+2. **mcp 命令 ANEL 化**
+   - 添加了 `--emit-spec` 和 `--dry-run` 支持
+   - 修改文件: `src/mcp/mod.rs`
+   - 添加了 `AnelSpec::mcp()` 方法
+
+3. **HTTP Server /spec 端点**
+   - 添加返回所有命令规范的端点
+   - 修改文件: `src/server/handlers.rs`, `src/server/mod.rs`
+
+#### Go 版本 ✅
+1. **context 命令 ANEL 化**
+   - 添加了 `--emit-spec` 和 `--dry-run` 支持
+   - 修改文件: `internal/cli/context.go`, `internal/anel/spec.go`
+   - 添加了 `ContextSpec()` 和 `McpSpec()` 方法
+
+2. **mcp 命令 ANEL 化**
+   - 添加了 `--dry-run` 支持
+   - 修改文件: `internal/cli/mcp.go`
+
+#### Python 版本 ✅
+1. **context 命令 ANEL 化**
+   - 添加了 `--emit-spec` 和 `--dry-run` 支持
+   - 修改文件: `src/cli/app.py`, `src/anel/spec.py`
+   - 添加了 `context_spec()` 和 `mcp_spec()` 函数
+
+2. **mcp 命令 ANEL 化**
+   - 添加了 `--emit-spec` 和 `--dry-run` 支持
+   - 修改文件: `src/cli/app.py`
+
+### 使用示例
+
+```bash
+# Rust 版本
+cd src/qmd-rust
+cargo build --features sqlite-vec
+./target/debug/qmd-rust context --emit-spec
+./target/debug/qmd-rust context add --dry-run --description "test"
+./target/debug/qmd-rust mcp --emit-spec
+./target/debug/qmd-rust mcp --dry-run
+
+# HTTP Server /spec 端点
+./target/debug/qmd-rust server --port 8080 &
+curl http://localhost:8080/spec
+
+# Go 版本
+cd src/qmd-go
+go build -o qmd ./cmd/qmd
+./qmd context --emit-spec
+./qmd context add --dry-run --description "test"
+./qmd mcp --dry-run
+
+# Python 版本
+cd src/qmd-python
+pip install -e .
+python -m qmd context --emit-spec
+python -m qmd context add --dry-run --description "test"
+python -m qmd mcp --emit-spec
+```
+
+### 多语言实现状态
+
+| 版本 | ANEL 完整度 |
+|------|------------|
+| Rust | 100% (context + mcp + /spec 端点) |
+| Go | 100% (context + mcp) |
+| Python | 100% (context + mcp) |
+| TypeScript | 0% (待开发) |
+
+### 修改的文件
+
+- `src/qmd-rust/src/cli/context.rs` - 添加 emit_spec/dry_run 处理
+- `src/qmd-rust/src/cli/mod.rs` - ContextArgs/McpArgs 添加参数
+- `src/qmd-rust/src/anel/mod.rs` - 添加 context_spec/mcp_spec
+- `src/qmd-rust/src/mcp/mod.rs` - 添加 emit_spec/dry_run 处理
+- `src/qmd-rust/src/server/handlers.rs` - 添加 spec() handler
+- `src/qmd-rust/src/server/mod.rs` - 添加 /spec 路由
+- `src/qmd-go/internal/cli/context.go` - 添加 dry_run 处理
+- `src/qmd-go/internal/cli/mcp.go` - 添加 dry_run 处理
+- `src/qmd-go/internal/anel/spec.go` - 添加 ContextSpec/McpSpec
+- `src/qmd-python/src/cli/app.py` - 添加 context/mcp 的 emit_spec/dry_run
+- `src/qmd-python/src/anel/spec.py` - 添加 context_spec/mcp_spec
+
+### 待完成
+
+- **TypeScript 版本** - 需要全新开发 ANEL 基础设施
+  - 创建 `src/qmd-typescript/src/anel/` 模块
+  - 修改 CLI 入口添加全局参数
+  - 为每个命令添加 ANEL 支持

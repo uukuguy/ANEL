@@ -13,6 +13,15 @@ var mcpCmd = &cobra.Command{
 		transport, _ := cmd.Flags().GetString("transport")
 		port, _ := cmd.Flags().GetUint("port")
 
+		// Check for dry-run mode
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			fmt.Println("[DRY-RUN] Would execute mcp server with:")
+			fmt.Printf("  transport: %s\n", transport)
+			fmt.Printf("  port: %d\n", port)
+			return
+		}
+
 		fmt.Printf("Starting MCP server (transport: %s, port: %d)\n", transport, port)
 	},
 }

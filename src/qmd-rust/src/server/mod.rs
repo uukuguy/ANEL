@@ -159,6 +159,7 @@ fn build_router(state: ServerState) -> Result<AxumRouter> {
     let app = AxumRouter::new()
         // Health and info
         .route("/health", get(handlers::health))
+        .route("/spec", get(handlers::spec))
         .route("/collections", get(handlers::list_collections))
         .route("/stats", get(handlers::stats))
         .route("/metrics", get(handlers::metrics))
