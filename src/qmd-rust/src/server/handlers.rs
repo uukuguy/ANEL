@@ -498,3 +498,71 @@ pub async fn mcp(
     };
     (StatusCode::NOT_IMPLEMENTED, Json(error)).into_response()
 }
+
+/// Prometheus metrics endpoint
+pub async fn metrics(State(state): State<ServerState>) -> impl IntoResponse {
+    let m = &state.metrics;
+
+    // Generate simple Prometheus format output
+    let output = format!(
+r#"# HELP qmd_http_requests_total Total HTTP requests received
+# TYPE qmd_http_requests_total counter
+qmd_http_requests_total {}
+
+# HELP qmd_http_requests_in_flight Requests currently being processed
+# TYPE qmd_http_requests_in_flight gauge
+qmd_http_requests_in_flight {}
+
+# HELP qmd_http_request_duration_seconds HTTP request latency
+# TYPE qmd_http_request_duration_seconds histogram
+qmd_http_request_duration_seconds_bucket{{le="0.005"}} 0
+qmd_http_request_duration_seconds_bucket{{le="0.01"}} 0
+qmd_http_request_duration_seconds_bucket{{le="0.05"}} 0
+qmd_http_request_duration_seconds_bucket{{le="0.1"}} 0
+qmd_http_request_duration_seconds_bucket{{le="0.5"}} 0
+qmd_http_request_duration_seconds_bucket{{le="1"}} 0
+qmd_http_request_duration_seconds_bucket{{le="+Inf"}} 0
+qmd_http_request_duration_seconds_sum 0
+qmd_http_request_duration_seconds_count 0
+
+# HELP qmd_search_total Total BM25 search requests
+# TYPE qmd_search_total counter
+qmd_search_total {}
+
+# HELP qmd_vsearch_total Total vector search requests
+# TYPE qmd_vsearch_total counter
+qmd_vsearch_total {}
+
+# HELP qmd_query_total Total hybrid query requests
+# TYPE qmd_query_total counter
+qmd_query_total {}
+
+# HELP qmd_errors_total Total errors
+# TYPE qmd_errors_total counter
+qmd_errors_total {}
+
+# HELP qmd_llm_embeddings_total Total embedding requests
+# TYPE qmd_llm_embeddings_total counter
+qmd_llm_embeddings_total {}
+
+# HELP qmd_llm_rerank_total Total rerank requests
+# TYPE qmd_llm_rerank_total counter
+qmd_llm_rerank_total {}
+
+# HELP qmd_llm_errors_total Total LLM errors
+# TYPE qmd_llm_errors_total counter
+qmd_llm_errors_total {}
+"#,
+        m.get_requests_total(),
+        m.get_requests_in_flight(),
+        m.get_search_total(),
+        m.get_vsearch_total(),
+        m.get_query_total(),
+        m.get_errors_total(),
+        m.get_llm_embeddings_total(),
+        m.get_llm_rerank_total(),
+        m.get_llm_errors()
+    );
+
+    (StatusCode::OK, [("Content-Type", "text/plain; version=0.0.4")], output)
+}

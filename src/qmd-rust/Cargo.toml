@@ -43,7 +43,7 @@ llama-cpp-2 = { version = "0.1", optional = true }
 # MCP
 rmcp = { version = "0.15", features = ["server", "transport-io", "transport-streamable-http-server", "transport-streamable-http-server-session"] }
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
 axum = "0.8"
 bytes = "1"
 http-body-util = "0.1"
@@ -59,6 +59,15 @@ sha2 = "0.10"
 urlencoding = "2.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Observability
+metrics = "0.22"
+metrics-exporter-prometheus = "0.13"
+uuid = { version = "1", features = ["v4"] }
+opentelemetry = { version = "0.24", optional = true }
+opentelemetry-otlp = { version = "0.16", optional = true }
+opentelemetry_sdk = { version = "0.24", optional = true }
+tracing-opentelemetry = { version = "0.24", optional = true }
 
 # Wasm Plugin System
 wasmtime = { version = "22", features = ["cranelift"] }
@@ -79,3 +88,4 @@ sqlite-vec = []
 llama-cpp = ["llama-cpp-2"]
 lancedb = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema", "dep:futures-util", "dep:futures"]
 qdrant = ["dep:qdrant-client"]
+observability = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:tracing-opentelemetry"]

@@ -3,6 +3,7 @@
 
 pub mod handlers;
 pub mod middleware;
+pub mod observability;
 
 use crate::config::Config;
 use crate::llm::Router;
@@ -16,6 +17,7 @@ use tower::ServiceExt;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use middleware::{RateLimitState, AuthState};
+use observability::{Metrics, Tracing};
 
 /// QMD HTTP Server state
 #[derive(Clone)]
@@ -26,6 +28,7 @@ pub struct ServerState {
     pub rate_limit_state: Arc<RateLimitState>,
     pub auth_state: Arc<AuthState>,
     pub auth_enabled: bool,
+    pub metrics: Arc<Metrics>,
 }
 
 /// Server configuration
@@ -96,6 +99,9 @@ pub fn run_server(config: &ServerConfig, app_config: &Config) -> Result<()> {
             config.whitelist_ips.clone(),
         ));
 
+        // Create metrics
+        let metrics = Arc::new(Metrics::new());
+
         let state = ServerState {
             store: Arc::new(Mutex::new(store)),
             llm: Arc::new(Mutex::new(llm)),
@@ -103,6 +109,7 @@ pub fn run_server(config: &ServerConfig, app_config: &Config) -> Result<()> {
             rate_limit_state,
             auth_state,
             auth_enabled: config.auth_enabled,
+            metrics,
         };
 
         // Build router with all routes
@@ -123,6 +130,7 @@ pub fn run_server(config: &ServerConfig, app_config: &Config) -> Result<()> {
         tracing::info!("  POST /vsearch         - Vector search");
         tracing::info!("  POST /query           - Hybrid search (BM25 + Vector + RRF + Rerank)");
         tracing::info!("  GET  /stats           - Index statistics");
+        tracing::info!("  GET  /metrics        - Prometheus metrics");
         tracing::info!("  GET  /documents/:path - Get document content");
         tracing::info!("  POST /mcp             - MCP protocol (JSON-RPC)");
         if config.auth_enabled {
@@ -153,6 +161,7 @@ fn build_router(state: ServerState) -> Result<AxumRouter> {
         .route("/health", get(handlers::health))
         .route("/collections", get(handlers::list_collections))
         .route("/stats", get(handlers::stats))
+        .route("/metrics", get(handlers::metrics))
         // Search endpoints
         .route("/search", post(handlers::search))
         .route("/vsearch", post(handlers::vsearch))

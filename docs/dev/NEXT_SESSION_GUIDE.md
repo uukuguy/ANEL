@@ -2,7 +2,7 @@
 
 **Last Updated**: 2026-02-15
 **Current Phase**: Phase 16 Hyper-Shell 模式探索
-**Project Status**: 进行中 🚧
+**Project Status**: 已完成 ✅
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
 
@@ -1038,6 +1038,16 @@ qmd agent --query "how to configure embedding"
    - 添加依赖: urlencoding, tracing, tracing-subscriber
    - 构建状态: ✅ 成功 (无 llama-cpp feature)
 
+6. **Phase 3.3: 可观测性** ✅ (2026-02-15)
+   - 添加 Prometheus 指标依赖
+   - 添加 OpenTelemetry 依赖 (可选 feature)
+   - 创建 observability 模块:
+     - `metrics.rs` - 请求计数器、响应时间直方图、搜索/LLM 调用计数
+     - `tracing_mod.rs` - 请求 ID 生成、Tracing 配置
+   - 添加 `/metrics` 端点 - Prometheus 格式输出
+   - 集成到 ServerState - 所有 handler 可访问 metrics
+   - 构建成功，169 测试全部通过
+
 ### 输出文档
 
 - `docs/design/HYPER_SHELL_DESIGN.md` - 完整的 Hyper-Shell 模式架构设计文档
@@ -1057,7 +1067,32 @@ qmd agent --query "how to configure embedding"
    - ✅ 插件管理器 (PluginManager)
    - ✅ 插件 CLI 命令 (install, list, remove, info, dir)
 
-3. **Phase 3.3: 可观测性** (1-2 周)
+3. **Phase 3.3: 可观测性** ✅ COMPLETED (2026-02-15)
+   - ✅ 添加 Prometheus 指标依赖 (metrics, metrics-exporter-prometheus)
+   - ✅ 添加 OpenTelemetry 依赖 (可选 feature)
+   - ✅ 创建 observability 模块 (src/server/observability/)
+   - ✅ Metrics 结构: 请求计数器、响应时间、搜索计数、LLM 调用计数
+   - ✅ Tracing 结构: 请求 ID 生成、Tracing 配置
+   - ✅ 添加 `/metrics` 端点 - Prometheus 格式输出
+   - ✅ 集成到 ServerState - 所有 handler 可访问 metrics
+   - ✅ 构建成功，169 测试全部通过
+
+**涉及文件**:
+- `Cargo.toml` - 添加 observability 依赖
+- `src/server/observability/mod.rs` - 模块入口
+- `src/server/observability/metrics.rs` - Prometheus 指标实现
+- `src/server/observability/tracing_mod.rs` - 分布式追踪配置
+- `src/server/mod.rs` - 添加 Metrics 到 ServerState
+- `src/server/handlers.rs` - 添加 /metrics 端点
+
+**使用方法**:
+```bash
+# 启动 server
+./target/debug/qmd-rust server --port 8080
+
+# 获取 metrics
+curl http://localhost:8080/metrics
+```
    - 日志系统 (tracing)
    - 指标收集 (prometheus)
    - 分布式追踪 (opentelemetry)
