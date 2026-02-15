@@ -24,6 +24,7 @@ pub mod update;
 pub mod status;
 pub mod cleanup;
 pub mod agent;
+pub mod plugin;
 
 /// Output format options
 #[derive(Debug, Clone, Args)]
@@ -101,6 +102,9 @@ pub enum Commands {
 
     /// Run in agent mode
     Agent(AgentArgs),
+
+    /// Plugin management
+    Plugin(PluginArgs),
 }
 
 #[derive(Args, Debug)]
@@ -384,4 +388,35 @@ pub struct AgentArgs {
     /// Dry-run mode: validate parameters without executing
     #[arg(long)]
     pub dry_run: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct PluginArgs {
+    #[command(subcommand)]
+    pub command: PluginCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PluginCommands {
+    /// List available plugins
+    List,
+    /// Install a plugin
+    Install {
+        /// Path to plugin .wasm file
+        path: String,
+        /// Optional plugin name (defaults to filename)
+        name: Option<String>,
+    },
+    /// Remove an installed plugin
+    Remove {
+        /// Plugin name to remove
+        name: String,
+    },
+    /// Show plugin information
+    Info {
+        /// Plugin name
+        name: String,
+    },
+    /// Show plugins directory
+    Dir,
 }

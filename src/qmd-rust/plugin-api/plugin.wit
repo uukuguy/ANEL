@@ -1,0 +1,48 @@
+/// QMD Plugin WIT Interface Definition
+///
+/// This file defines the WebAssembly Interface Type (WIT) for QMD plugins.
+/// Plugins can implement scorer, filter, and transform functions.
+///
+/// Usage:
+///   wit-bindgen generate --language rust plugin-api/plugin.wit --out-dir src/plugin/wit
+
+package qmd:plugin@0.1.0
+
+/// Plugin interface for QMD search extensions
+world plugin {
+    /// Custom scorer: calculate relevance score for a document
+    export scorer: func(query: string, title: string, body: string) -> float32
+
+    /// Filter: decide whether to include a document in results
+    export filter: func(title: string, body: string) -> bool
+
+    /// Transform: modify document content before returning
+    export transform: title string, body: string) -> result<transform-result, string>
+
+    /// Preprocess: modify query before search
+    export preprocess-query: func(query: string) -> string
+
+    /// Postprocess: modify search results
+    export postprocess-results: func(results: list<search-result>) -> list<search-result>
+}
+
+/// Result of transform operation
+record transform-result {
+    title: string,
+    body: string,
+    metadata: list<key-value>,
+}
+
+/// Key-value pair for metadata
+record key-value {
+    key: string,
+    value: string,
+}
+
+/// Search result structure
+record search-result {
+    path: string,
+    title: string,
+    body: string,
+    score: float32,
+}

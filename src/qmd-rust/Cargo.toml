@@ -32,6 +32,7 @@ shellexpand = "3.1"
 
 # File globbing
 glob = "0.3"
+dirs = "5"
 
 # LLM
 tokio = { version = "1.0", features = ["full"] }
@@ -58,6 +59,10 @@ sha2 = "0.10"
 urlencoding = "2.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Wasm Plugin System
+wasmtime = { version = "22", features = ["cranelift"] }
+wasmparser = "0.22"
 
 [dev-dependencies]
 assert_cmd = "2.0"

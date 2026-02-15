@@ -396,7 +396,7 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 
 ## 🎉 Summary
 
-**Phase 1, 2, 3, 4A, 4B, 4C, 4D, 5, 6, 7, 8, 9, 10 & 11 Complete!** The QMD Rust project now has:
+**Phase 1, 2, 3, 4A, 4B, 4C, 4D, 5, 6, 7, 8, 9, 10, 11 & 12 (Phase 3.2) Complete!** The QMD Rust project now has:
 - ✅ Full vector search implementation with sqlite-vec (768-dim)
 - ✅ Real embedding model integration (nomic-embed-text-v1.5 with GPU acceleration)
 - ✅ Hybrid search combining BM25 + Vector search
@@ -407,16 +407,18 @@ sqlite3 ~/.cache/qmd/test_collection/index.db "SELECT path, title FROM documents
 - ✅ Semantic search working with real embeddings (no more random vectors!)
 - ✅ **59 unit tests** covering RRF fusion, BM25 search, query expansion, embedding normalization, schema init, chunker, agent routing, reranker
 - ✅ **51 integration tests** covering store, formatter, config, hybrid search, CLI, chunking
+- ✅ **190 total tests** - all passing
 - ✅ **vec0 graceful degradation** — sqlite-vec table creation no longer crashes when extension unavailable
 - ✅ **Model caching** - embedding model loads once, reused across queries (Mutex<Option<CachedLlamaModel>>)
 - ✅ **Code cleanup** - removed 6 deprecated sync methods, cleaner async-only codebase
 - ✅ **Document chunking** - intelligent boundary-aware splitting (paragraph > sentence > word), 800 tokens/chunk with 15% overlap
 - ✅ **Chunk-level embeddings** - each chunk gets independent vector, aggregated back to document level for search results
-- ✅ **MCP Server** - rmcp v0.15.0 SDK, 5 tools (search/vsearch/query/get/status), stdio transport, async/sync separation pattern
-- ✅ **Agent 智能路由** - QueryIntent 意图分类 (Keyword/Semantic/Complex), classify_intent 规则引擎, 强制路由 (/bm25/vector/hybrid), 14 个单元测试
-- ✅ **LLM Reranker 真实推理** - BGE-reranker-v2-m3 交叉编码器，LlamaPoolingType::Rank，模型缓存，title+path 重排上下文
+- ✅ **MCP Server** - rmcp v0.15.0 SDK, 5 tools (search/vsearch/query/get/status), stdio + HTTP transport
+- ✅ **Agent 智能路由** - QueryIntent 意图分类 (Keyword/Semantic/Complex), classify_intent 规则引擎, 强制路由 (/bm25/vector/hybrid)
+- ✅ **LLM Reranker 真实推理** - BGE-reranker-v2-m3 交叉编码器，LlamaPoolingType::Rank，模型缓存
 - ✅ **Schema 完善** - docid 文档标识符, path_contexts 路径上下文表, llm_cache LLM 缓存表, XML 输出格式
-- ✅ **LanceDB 后端抽象** - feature flag 支持，BM25Backend/VectorBackend 枚举，后端分发框架（占位实现）
+- ✅ **独立 HTTP Server** - qmd server 命令, REST API, Rate Limiting, API Key 认证
+- ✅ **Wasm 插件系统** - wasmtime 集成, WIT 接口定义, 插件 CLI (install/list/remove/info)
 
 ---
 
@@ -917,6 +919,17 @@ curl -X POST http://localhost:8080/mcp \
 - `src/qmd-rust/Cargo.toml` - 添加 MCP HTTP 传输依赖
 - `src/qmd-rust/src/mcp/mod.rs` - 添加 HTTP Server 实现
 
+### Phase 3.2 文件变更 (2026-02-15)
+
+- `src/qmd-rust/Cargo.toml` - 添加 wasmtime, wasmparser, dirs 依赖
+- `src/qmd-rust/plugin-api/plugin.wit` - WIT 接口定义
+- `src/qmd-rust/src/plugin/mod.rs` - 插件模块声明
+- `src/qmd-rust/src/plugin/error.rs` - 错误类型
+- `src/qmd-rust/src/plugin/types.rs` - 插件类型定义
+- `src/qmd-rust/src/plugin/manager.rs` - 插件管理器实现
+- `src/qmd-rust/src/cli/plugin.rs` - 插件 CLI 命令
+- `src/qmd-rust/src/main.rs` - 添加 plugin 命令处理
+
 ---
 
 ## 🎯 ANEL Phase 2 完成 (2026-02-15) ✅
@@ -1037,10 +1050,12 @@ qmd agent --query "how to configure embedding"
    - ✅ API Key 认证 (X-API-Key header)
    - ⚠️ MCP 协议 - 返回提示使用独立服务器
 
-2. **Phase 3.2: Wasm 插件系统** (3-4 周)
-   - WIT 接口定义
-   - Wasmtime 集成
-   - 插件管理 CLI
+2. **Phase 3.2: Wasm 插件系统** ✅ COMPLETED (2026-02-15)
+   - ✅ 添加 wasmtime 依赖
+   - ✅ WIT 接口定义 (plugin-api/plugin.wit)
+   - ✅ 插件模块 (src/plugin/)
+   - ✅ 插件管理器 (PluginManager)
+   - ✅ 插件 CLI 命令 (install, list, remove, info, dir)
 
 3. **Phase 3.3: 可观测性** (1-2 周)
    - 日志系统 (tracing)

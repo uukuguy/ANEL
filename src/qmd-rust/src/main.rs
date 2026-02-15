@@ -10,6 +10,7 @@ mod config;
 mod formatter;
 mod llm;
 mod mcp;
+mod plugin;
 mod server;
 mod store;
 
@@ -112,6 +113,9 @@ fn main() -> Result<()> {
             let store = store::Store::new(&config)?;
             let llm = llm::Router::new(&config)?;
             crate::cli::agent::handle(cmd, &store, &llm)?;
+        }
+        Commands::Plugin(cmd) => {
+            crate::cli::plugin::handle_plugin(cmd, &config)?;
         }
     }
 
