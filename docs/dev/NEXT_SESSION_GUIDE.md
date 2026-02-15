@@ -867,3 +867,69 @@ curl -X POST http://localhost:8080/mcp \
 - `.gitignore` - 更新排除 Go/Python 二进制文件
 - `src/qmd-rust/Cargo.toml` - 添加 MCP HTTP 传输依赖
 - `src/qmd-rust/src/mcp/mod.rs` - 添加 HTTP Server 实现
+
+---
+
+## 🎯 ANEL Phase 2 完成 (2026-02-15) ✅
+
+### 完成内容
+
+1. **所有命令添加 ANEL 支持**
+   - `get`, `multi_get`, `collection`, `embed`, `update`, `status`, `cleanup`, `agent`
+   - 每个命令支持 `--emit-spec` 和 `--dry-run` 选项
+
+2. **ANEL 规范扩展**
+   - 为每个命令添加完整的 input_schema 和 output_schema (JSON Schema)
+   - 添加对应的错误码列表
+
+3. **测试验证**
+   - 构建成功 ✅
+   - 169 个测试通过 ✅
+   - 所有命令的 --emit-spec 和 --dry-run 功能验证通过
+
+### 使用示例
+
+```bash
+# 查看命令规范
+qmd get --emit-spec test.txt
+qmd embed --emit-spec
+qmd collection --emit-spec list
+
+# 干运行模式
+qmd get --dry-run test.txt
+qmd embed --dry-run --collection my_collection
+qmd update --dry-run
+qmd cleanup --dry-run --older-than 7
+
+# 非交互式 agent 查询
+qmd agent --query "how to configure embedding"
+```
+
+### 修改的文件
+
+- `src/qmd-rust/src/cli/mod.rs` - 添加通用 ANEL 选项参数
+- `src/qmd-rust/src/anel/mod.rs` - 添加 8 个命令的 ANEL 规范
+- `src/qmd-rust/src/cli/get.rs` - 添加 --emit-spec, --dry-run 支持
+- `src/qmd-rust/src/cli/multi_get.rs` - 添加 --emit-spec, --dry-run 支持
+- `src/qmd-rust/src/cli/collection.rs` - 添加 --emit-spec, --dry-run 支持
+- `src/qmd-rust/src/cli/embed.rs` - 添加 --emit-spec, --dry-run 支持
+- `src/qmd-rust/src/cli/update.rs` - 添加 --emit-spec, --dry-run 支持
+- `src/qmd-rust/src/cli/status.rs` - 添加 --emit-spec, --dry-run 支持
+- `src/qmd-rust/src/cli/cleanup.rs` - 添加 --emit-spec 支持
+- `src/qmd-rust/src/cli/agent.rs` - 添加 --emit-spec, --dry-run, --query 支持
+
+---
+
+## 📝 后续计划
+
+### Phase 3: Hyper-Shell 模式探索（P2）
+
+1. 评估 Wasm 插件系统需求
+2. 设计 Server 模式架构
+3. 编写架构建议文档
+
+### 可选增强
+
+1. 统一三版本架构和配置
+2. Go/Python MCP HTTP Server 实现
+3. 向量后端增强（Qdrant）
