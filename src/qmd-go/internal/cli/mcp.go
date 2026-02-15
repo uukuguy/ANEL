@@ -3,13 +3,14 @@ package cli
 import (
 	"fmt"
 
+	"github.com/qmd/qmd-go/internal/mcp"
 	"github.com/spf13/cobra"
 )
 
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Run as MCP server",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		transport, _ := cmd.Flags().GetString("transport")
 		port, _ := cmd.Flags().GetUint("port")
 
@@ -19,10 +20,10 @@ var mcpCmd = &cobra.Command{
 			fmt.Println("[DRY-RUN] Would execute mcp server with:")
 			fmt.Printf("  transport: %s\n", transport)
 			fmt.Printf("  port: %d\n", port)
-			return
+			return nil
 		}
 
-		fmt.Printf("Starting MCP server (transport: %s, port: %d)\n", transport, port)
+		return mcp.RunServer(transport, int(port))
 	},
 }
 
@@ -31,7 +32,7 @@ var agentCmd = &cobra.Command{
 	Short: "Run in agent mode",
 	Run: func(cmd *cobra.Command, args []string) {
 		interactive, _ := cmd.Flags().GetBool("interactive")
-		mcp, _ := cmd.Flags().GetBool("mcp")
+		mcpFlag, _ := cmd.Flags().GetBool("mcp")
 		transport, _ := cmd.Flags().GetString("transport")
 
 		if interactive {
@@ -41,7 +42,7 @@ var agentCmd = &cobra.Command{
 			fmt.Println("Agent mode ready")
 		}
 
-		if mcp {
+		if mcpFlag {
 			fmt.Printf("MCP server enabled (transport: %s)\n", transport)
 		}
 	},
