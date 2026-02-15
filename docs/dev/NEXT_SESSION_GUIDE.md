@@ -1,7 +1,7 @@
 # Next Session Guide - QMD Development
 
-**Last Updated**: 2026-02-13
-**Current Phase**: Phase 14 Complete ✅
+**Last Updated**: 2026-02-15
+**Current Phase**: Phase 15 Complete ✅
 **Project Status**: ALL PHASES COMPLETED 🎉
 
 ## 🎯 Phase 1 Status: COMPLETED ✅
@@ -655,6 +655,55 @@ cd qmd-python && pip install -e .  # ✅ 成功
 ```
 
 **下一步**: 可选 - 完善向量搜索实现、添加真实LLM集成
+
+---
+
+## 🎯 Phase 15: ANEL 多语言实现 ✅ COMPLETED (2026-02-15)
+
+### 完成的工作
+
+#### Go 实现
+1. **创建 ANEL 核心包**
+   - `internal/anel/anel.go` - ErrorCode、Severity、AnelError、TraceContext、AnelSpec、NDJSONRecord
+   - `internal/anel/spec.go` - 11个命令的 AnelSpec 生成器
+   - `internal/anel/error.go` - 错误转换工具
+
+2. **CLI 集成**
+   - 全局 `--emit-spec` 和 `--dry-run` 参数
+   - 环境变量支持: AGENT_TRACE_ID, AGENT_IDENTITY_TOKEN, AGENT_OUTPUT_FORMAT, AGENT_DRY_RUN, AGENT_EMIT_SPEC
+
+3. **命令支持**
+   - search, vsearch, query, get, embed, update, status, cleanup, agent, collection
+
+#### Python 实现
+4. **创建 ANEL 核心包**
+   - `src/anel/__init__.py` - 使用 Pydantic 的核心类型
+   - `src/anel/spec.py` - 11个命令的 AnelSpec 生成器
+
+5. **CLI 集成**
+   - 全局回调支持 `--emit-spec` 和 `--dry-run`
+   - 每个命令独立检查 emit-spec/dry-run
+   - 添加 pydantic 依赖到 pyproject.toml
+
+### 验证结果
+
+```bash
+# Go 版本
+cd src/qmd-go
+go build -o qmd ./cmd/qmd
+./qmd search --emit-spec "test"   # 输出 JSON Schema
+./qmd search --dry-run "test"     # 输出 DRY-RUN 信息
+
+# 11个命令全部支持 --emit-spec 和 --dry-run
+```
+
+### 文件清单
+
+| 语言 | 新建文件 |
+|------|----------|
+| Go | internal/anel/anel.go, internal/anel/spec.go, internal/anel/error.go |
+| Go | internal/cli/cleanup.go (新增命令) |
+| Python | src/anel/__init__.py, src/anel/spec.py |
 
 ---
 

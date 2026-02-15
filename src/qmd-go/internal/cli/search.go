@@ -31,6 +31,16 @@ var queryCmd = &cobra.Command{
 func runSearch(cmd *cobra.Command, args []string) {
 	query := args[0]
 
+	// Check for dry-run mode
+	if dryRun {
+		fmt.Printf("[DRY-RUN] Would execute BM25 search for query: %s\n", query)
+		fmt.Printf("[DRY-RUN] Limit: %d\n", limit)
+		collection, _ := cmd.Flags().GetString("collection")
+		all, _ := cmd.Flags().GetBool("all")
+		fmt.Printf("[DRY-RUN] Collection: %s, SearchAll: %v\n", collection, all)
+		return
+	}
+
 	s, err := LoadStore()
 	if err != nil {
 		fmt.Fprintf(cmd.OutOrStderr(), "Error loading store: %v\n", err)
@@ -56,6 +66,16 @@ func runSearch(cmd *cobra.Command, args []string) {
 func runVectorSearch(cmd *cobra.Command, args []string) {
 	query := args[0]
 
+	// Check for dry-run mode
+	if dryRun {
+		fmt.Printf("[DRY-RUN] Would execute vector search for query: %s\n", query)
+		fmt.Printf("[DRY-RUN] Limit: %d\n", limit)
+		collection, _ := cmd.Flags().GetString("collection")
+		all, _ := cmd.Flags().GetBool("all")
+		fmt.Printf("[DRY-RUN] Collection: %s, SearchAll: %v\n", collection, all)
+		return
+	}
+
 	s, err := LoadStore()
 	if err != nil {
 		fmt.Fprintf(cmd.OutOrStderr(), "Error loading store: %v\n", err)
@@ -80,6 +100,16 @@ func runVectorSearch(cmd *cobra.Command, args []string) {
 
 func runQuery(cmd *cobra.Command, args []string) {
 	query := args[0]
+
+	// Check for dry-run mode
+	if dryRun {
+		fmt.Printf("[DRY-RUN] Would execute hybrid search for query: %s\n", query)
+		fmt.Printf("[DRY-RUN] Limit: %d\n", limit)
+		collection, _ := cmd.Flags().GetString("collection")
+		all, _ := cmd.Flags().GetBool("all")
+		fmt.Printf("[DRY-RUN] Collection: %s, SearchAll: %v\n", collection, all)
+		return
+	}
 
 	s, err := LoadStore()
 	if err != nil {

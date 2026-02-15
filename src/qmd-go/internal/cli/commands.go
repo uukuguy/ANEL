@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/qmd/qmd-go/internal/anel"
 	"github.com/qmd/qmd-go/internal/config"
 	"github.com/qmd/qmd-go/internal/store"
 	"github.com/spf13/cobra"
@@ -16,15 +17,33 @@ var RootCmd = &cobra.Command{
 	Use:   "qmd",
 	Short: "QMD - AI-powered search with hybrid BM25 and vector search",
 	Long:  `QMD provides AI-powered search with hybrid BM25 and vector search capabilities.`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Check for --emit-spec flag before running command
+		emitSpec, _ := cmd.Flags().GetBool("emit-spec")
+		if emitSpec {
+			spec := anel.GetSpecForCommand(cmd.Name())
+			if spec != nil {
+				fmt.Println(spec.ToJSON())
+				os.Exit(0)
+			}
+		}
+		return nil
+	},
 }
 
 // Global options
 var (
-	configPath string
+	configPath  string
 	outputFormat string
 	limit       int
 	ftsBackend  string
 	vectorBackend string
+)
+
+// ANEL global options
+var (
+	emitSpec  bool
+	dryRun    bool
 )
 
 // Search options
@@ -48,6 +67,18 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&vectorBackend, "vector-backend", "qmd_builtin", "Vector backend: qmd_builtin, lancedb, qdrant")
 	RootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Config file path")
 
+	// ANEL flags
+	RootCmd.PersistentFlags().BoolVar(&emitSpec, "emit-spec", false, "Output JSON Schema and exit")
+	RootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Validate parameters but don't execute")
+
+	// Check environment variables for ANEL overrides
+	if os.Getenv(anel.EnvEmitSpec) != "" {
+		emitSpec = true
+	}
+	if os.Getenv(anel.EnvDryRun) != "" {
+		dryRun = true
+	}
+
 	// Add subcommands
 	RootCmd.AddCommand(collectionCmd)
 	RootCmd.AddCommand(contextCmd)
@@ -58,6 +89,7 @@ func init() {
 	RootCmd.AddCommand(embedCmd)
 	RootCmd.AddCommand(updateCmd)
 	RootCmd.AddCommand(statusCmd)
+	RootCmd.AddCommand(cleanupCmd)
 	RootCmd.AddCommand(mcpCmd)
 }
 
