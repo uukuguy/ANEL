@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QMD Query Output Contract",
+  "description": "Contract specification for qmd query (hybrid search) command output",
+  "oneOf": [
+    {
+      "description": "NDJSON format output",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "seq", "payload"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["metadata", "result"]
+          },
+          "seq": {
+            "type": "integer"
+          },
+          "payload": {
+            "$ref": "#/definitions/RerankedSearchResult"
+          }
+        }
+      }
+    },
+    {
+      "description": "JSON format output",
+      "type": "object",
+      "required": ["results", "total"],
+      "properties": {
+        "query": {
+          "type": ["string", "null"]
+        },
+        "total": {
+          "type": "integer"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RerankedSearchResult"
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "RerankedSearchResult": {
+      "type": "object",
+      "required": ["docid", "path", "collection", "score", "lines", "title", "hash", "reranked"],
+      "properties": {
+        "docid": {
+          "type": "string",
+          "description": "Document identifier in format collection:path"
+        },
+        "path": {
+          "type": "string",
+          "description": "File path relative to collection"
+        },
+        "collection": {
+          "type": "string",
+          "description": "Collection name"
+        },
+        "score": {
+          "type": "number",
+          "description": "Final reranked score (combines BM25 + vector + LLM reranking)"
+        },
+        "lines": {
+          "type": "integer",
+          "description": "Number of lines in the document"
+        },
+        "title": {
+          "type": "string",
+          "description": "Document title"
+        },
+        "hash": {
+          "type": "string",
+          "description": "Document hash"
+        },
+        "query": {
+          "type": ["string", "null"],
+          "description": "Original query that produced this result"
+        },
+        "reranked": {
+          "type": "boolean",
+          "description": "Whether this result was reranked by LLM"
+        }
+      }
+    }
+  }
+}
