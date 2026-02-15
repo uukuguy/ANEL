@@ -1179,7 +1179,7 @@ python -m qmd mcp --emit-spec
 | Rust | 100% (context + mcp + /spec 端点) |
 | Go | 100% (context + mcp) |
 | Python | 100% (context + mcp) |
-| TypeScript | 0% (待开发) |
+| TypeScript | 100% (全部 12 个命令) |
 
 ### 修改的文件
 
@@ -1197,7 +1197,62 @@ python -m qmd mcp --emit-spec
 
 ### 待完成
 
-- **TypeScript 版本** - 需要全新开发 ANEL 基础设施
-  - 创建 `src/qmd-typescript/src/anel/` 模块
-  - 修改 CLI 入口添加全局参数
-  - 为每个命令添加 ANEL 支持
+- 所有四个版本 ANEL 已完成 ✅
+
+---
+
+## 🎯 TypeScript ANEL 实现 ✅ COMPLETED (2026-02-15)
+
+### 完成内容
+
+1. **创建 ANEL 核心模块** (`src/anel/index.ts`)
+   - Severity 类型、ErrorCode 类型 + toStatus 映射
+   - AnelError (RFC 7807 + ANEL 扩展)、RecoveryHint
+   - TraceContext (环境变量读取 + trace ID 生成)
+   - NdjsonRecord 泛型、AnelResult
+   - fromError 错误转换工具
+
+2. **创建 ANEL Spec 模块** (`src/anel/spec.ts`)
+   - 12 个命令的 AnelSpec 生成器: search, vsearch, query, get, multi-get, collection, context, embed, update, status, cleanup, mcp
+   - getSpecForCommand() 查找函数
+
+3. **CLI 集成** (`src/qmd.ts`)
+   - 全局 `--emit-spec` 和 `--dry-run` 参数
+   - 环境变量支持: AGENT_EMIT_SPEC, AGENT_DRY_RUN, AGENT_TRACE_ID, AGENT_IDENTITY_TOKEN
+   - 所有 12 个命令支持 --emit-spec 和 --dry-run
+
+### 验证结果
+
+```bash
+# --emit-spec 测试 (所有命令)
+bun src/qmd.ts search --emit-spec "test"      # ✅ 输出 JSON Schema
+bun src/qmd.ts vsearch --emit-spec "test"      # ✅
+bun src/qmd.ts query --emit-spec "test"        # ✅
+bun src/qmd.ts get --emit-spec test.md         # ✅
+bun src/qmd.ts embed --emit-spec               # ✅
+bun src/qmd.ts collection --emit-spec list     # ✅
+bun src/qmd.ts context --emit-spec list        # ✅
+bun src/qmd.ts mcp --emit-spec                 # ✅
+bun src/qmd.ts status --emit-spec              # ✅
+bun src/qmd.ts update --emit-spec              # ✅
+bun src/qmd.ts cleanup --emit-spec             # ✅
+bun src/qmd.ts multi-get --emit-spec "*.md"    # ✅
+
+# --dry-run 测试 (所有命令)
+bun src/qmd.ts search --dry-run "test"         # ✅ 输出 DRY-RUN 信息
+bun src/qmd.ts embed --dry-run                 # ✅
+bun src/qmd.ts cleanup --dry-run               # ✅
+
+# 环境变量测试
+AGENT_EMIT_SPEC=1 bun src/qmd.ts search "test" # ✅
+AGENT_DRY_RUN=1 bun src/qmd.ts embed           # ✅
+```
+
+### 新建文件
+
+- `src/qmd-typescript/src/anel/index.ts` - ANEL 核心类型和工具函数
+- `src/qmd-typescript/src/anel/spec.ts` - 12 个命令的 ANEL 规范生成器
+
+### 修改文件
+
+- `src/qmd-typescript/src/qmd.ts` - 添加 ANEL import、--emit-spec/--dry-run 参数、所有命令的 ANEL 检查
