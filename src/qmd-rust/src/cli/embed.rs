@@ -1,3 +1,4 @@
+use crate::anel::AnelSpec;
 use crate::cli::EmbedArgs;
 use crate::store::Store;
 use crate::store::chunker::{chunk_document, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP};
@@ -10,6 +11,21 @@ pub fn handle(
     store: &Store,
     llm: &Router,
 ) -> Result<()> {
+    // Handle --emit-spec: output ANEL specification and exit
+    if cmd.emit_spec {
+        let spec = AnelSpec::embed();
+        println!("{}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+
+    // Handle --dry-run: validate parameters without executing
+    if cmd.dry_run {
+        println!("[DRY-RUN] Would execute embed with:");
+        println!("  collection: {:?}", cmd.collection);
+        println!("  force: {}", cmd.force);
+        return Ok(());
+    }
+
     let collection = cmd.collection.clone();
 
     // Create a Tokio runtime for async operations

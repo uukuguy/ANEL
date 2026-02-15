@@ -1,3 +1,4 @@
+use crate::anel::AnelSpec;
 use crate::cli::CleanupArgs;
 use crate::store::Store;
 use anyhow::Result;
@@ -7,6 +8,13 @@ pub fn handle(
     cmd: &CleanupArgs,
     store: &Store,
 ) -> Result<()> {
+    // Handle --emit-spec: output ANEL specification and exit
+    if cmd.emit_spec {
+        let spec = AnelSpec::cleanup();
+        println!("{}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+
     let stale_files = store.find_stale_entries(cmd.older_than)?;
 
     if stale_files.is_empty() {

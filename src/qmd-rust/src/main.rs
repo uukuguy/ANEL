@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use log::info;
 
+mod anel;
 mod cli;
 mod config;
 mod formatter;

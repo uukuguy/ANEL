@@ -1,13 +1,49 @@
-use crate::cli::{CollectionCommands, CollectionAddArgs, CollectionRemoveArgs, CollectionRenameArgs};
+use crate::anel::AnelSpec;
+use crate::cli::{CollectionArgs, CollectionCommands, CollectionAddArgs, CollectionRemoveArgs, CollectionRenameArgs};
 use crate::config::{Config, CollectionConfig};
 use anyhow::Result;
 use std::path::PathBuf;
 
 /// Handle collection commands
 pub fn handle(
-    cmd: &crate::cli::CollectionArgs,
+    cmd: &CollectionArgs,
     config: &mut Config,
 ) -> Result<()> {
+    // Handle --emit-spec: output ANEL specification and exit
+    if cmd.emit_spec {
+        let spec = AnelSpec::collection();
+        println!("{}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+
+    // Handle --dry-run: validate parameters without executing
+    if cmd.dry_run {
+        println!("[DRY-RUN] Would execute collection with:");
+        println!("  format: {}", cmd.format);
+        match &cmd.command {
+            CollectionCommands::Add(args) => {
+                println!("  action: add");
+                println!("  path: {}", args.path);
+                println!("  name: {:?}", args.name);
+                println!("  mask: {}", args.mask);
+                println!("  description: {:?}", args.description);
+            }
+            CollectionCommands::List => {
+                println!("  action: list");
+            }
+            CollectionCommands::Remove(args) => {
+                println!("  action: remove");
+                println!("  name: {}", args.name);
+            }
+            CollectionCommands::Rename(args) => {
+                println!("  action: rename");
+                println!("  old_name: {}", args.old_name);
+                println!("  new_name: {}", args.new_name);
+            }
+        }
+        return Ok(());
+    }
+
     match &cmd.command {
         CollectionCommands::Add(args) => add_collection(args, config),
         CollectionCommands::List => list_collections(config),

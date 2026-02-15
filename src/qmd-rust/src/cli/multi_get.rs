@@ -1,4 +1,5 @@
-use crate::cli::{MultiGetArgs};
+use crate::anel::AnelSpec;
+use crate::cli::MultiGetArgs;
 use crate::config::Config;
 use anyhow::{Context, Result};
 use glob::glob;
@@ -11,6 +12,22 @@ pub fn handle(
     _config: &Config,
 ) -> Result<()> {
     let pattern = &cmd.pattern;
+
+    // Handle --emit-spec: output ANEL specification and exit
+    if cmd.emit_spec {
+        let spec = AnelSpec::multi_get();
+        println!("{}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+
+    // Handle --dry-run: validate parameters without executing
+    if cmd.dry_run {
+        println!("[DRY-RUN] Would execute multi_get with:");
+        println!("  pattern: {}", pattern);
+        println!("  limit: {}", cmd.limit);
+        println!("  max_bytes: {:?}", cmd.max_bytes);
+        return Ok(());
+    }
 
     // Expand the glob pattern
     let entries = glob(pattern)

@@ -1,3 +1,4 @@
+use crate::anel::{NdjsonRecord, TraceContext};
 use crate::store::SearchResult;
 use serde::Serialize;
 
@@ -6,6 +7,7 @@ use serde::Serialize;
 pub enum Format {
     Cli,
     Json,
+    Ndjson,
     Markdown,
     Csv,
     Files,
@@ -17,6 +19,7 @@ impl Format {
     pub fn from_string(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "json" => Self::Json,
+            "ndjson" | "jsonl" => Self::Ndjson,
             "md" | "markdown" => Self::Markdown,
             "csv" => Self::Csv,
             "files" | "paths" => Self::Files,
@@ -32,6 +35,7 @@ impl Format {
         match self {
             Self::Cli => self.format_cli(limited_results),
             Self::Json => self.format_json(limited_results),
+            Self::Ndjson => self.format_ndjson(limited_results),
             Self::Markdown => self.format_markdown(limited_results),
             Self::Csv => self.format_csv(limited_results),
             Self::Files => self.format_files(limited_results),
@@ -69,6 +73,35 @@ impl Format {
         };
 
         println!("{}", serde_json::to_string_pretty(&output)?);
+        Ok(())
+    }
+
+    /// Format results as NDJSON (Newline-Delimited JSON)
+    ///
+    /// Each result is emitted as a separate JSON line, suitable for streaming
+    fn format_ndjson(&self, results: &[SearchResult]) -> Result<(), anyhow::Error> {
+        let trace_ctx = TraceContext::from_env();
+        let trace_id = trace_ctx.get_or_generate_trace_id();
+
+        // Get query from first result if available
+        let query = results.first().and_then(|r| r.query.clone());
+
+        // Emit metadata record first
+        let metadata = serde_json::json!({
+            "total": results.len(),
+            "query": query,
+            "trace_id": trace_id,
+            "version": "1.0"
+        });
+        let metadata_record = NdjsonRecord::new("metadata", 0, metadata);
+        metadata_record.emit();
+
+        // Emit each result as a separate NDJSON line
+        for (i, result) in results.iter().enumerate() {
+            let record = NdjsonRecord::new("result", (i + 1) as u64, result);
+            record.emit();
+        }
+
         Ok(())
     }
 

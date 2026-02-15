@@ -1,5 +1,7 @@
 pub mod chunker;
 pub mod lance_backend;
+
+#[cfg(feature = "qdrant")]
 pub mod qdrant_backend;
 
 #[cfg(feature = "lancedb")]

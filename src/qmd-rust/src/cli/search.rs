@@ -1,3 +1,4 @@
+use crate::anel::AnelSpec;
 use crate::cli::{SearchArgs, FormatOptions};
 use crate::store::Store;
 use crate::formatter::Format;
@@ -10,6 +11,24 @@ pub fn handle(
 ) -> Result<()> {
     let query = &cmd.query;
     let options = convert_options(&cmd.format);
+
+    // Handle --emit-spec: output ANEL specification and exit
+    if cmd.format.emit_spec {
+        let spec = AnelSpec::search();
+        println!("{}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+
+    // Handle --dry-run: validate parameters without executing
+    if cmd.format.dry_run {
+        println!("[DRY-RUN] Would execute search with:");
+        println!("  query: {}", query);
+        println!("  limit: {}", options.limit);
+        println!("  min_score: {}", options.min_score);
+        println!("  collection: {:?}", options.collection);
+        println!("  search_all: {}", options.search_all);
+        return Ok(());
+    }
 
     // Perform search
     let results = store.bm25_search(query, options.clone())?;

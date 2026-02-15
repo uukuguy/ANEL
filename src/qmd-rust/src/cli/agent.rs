@@ -1,3 +1,4 @@
+use crate::anel::AnelSpec;
 use crate::cli::AgentArgs;
 use crate::formatter::Format;
 use crate::llm::Router;
@@ -224,6 +225,30 @@ fn vector_search_in_db(
 
 /// Handle agent command - autonomous search mode
 pub fn handle(cmd: &AgentArgs, store: &Store, llm: &Router) -> Result<()> {
+    // Handle --emit-spec: output ANEL specification and exit
+    if cmd.emit_spec {
+        let spec = AnelSpec::agent();
+        println!("{}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+
+    // Handle --dry-run: validate parameters without executing
+    if cmd.dry_run {
+        println!("[DRY-RUN] Would execute agent with:");
+        println!("  interactive: {}", cmd.interactive);
+        println!("  mcp: {}", cmd.mcp);
+        println!("  transport: {}", cmd.transport);
+        println!("  query: {:?}", cmd.query);
+        return Ok(());
+    }
+
+    // Non-interactive mode with query
+    if let Some(query) = &cmd.query {
+        run_single_query(query, store, llm)?;
+        return Ok(());
+    }
+
+    // Interactive or prompt mode
     if cmd.interactive {
         run_interactive_agent(store, llm)?;
     } else {

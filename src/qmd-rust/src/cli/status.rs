@@ -1,3 +1,4 @@
+use crate::anel::AnelSpec;
 use crate::cli::StatusArgs;
 use crate::store::Store;
 use anyhow::Result;
@@ -7,6 +8,21 @@ pub fn handle(
     cmd: &StatusArgs,
     store: &Store,
 ) -> Result<()> {
+    // Handle --emit-spec: output ANEL specification and exit
+    if cmd.emit_spec {
+        let spec = AnelSpec::status();
+        println!("{}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+
+    // Handle --dry-run: validate parameters without executing
+    if cmd.dry_run {
+        println!("[DRY-RUN] Would execute status with:");
+        println!("  verbose: {}", cmd.verbose);
+        println!("  collection: {:?}", cmd.collection);
+        return Ok(());
+    }
+
     println!("QMD Index Status");
     println!("{}", "=".repeat(50));
 

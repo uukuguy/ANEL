@@ -1,4 +1,5 @@
-use crate::cli::{GetArgs};
+use crate::anel::AnelSpec;
+use crate::cli::GetArgs;
 use crate::config::Config;
 use anyhow::{Context, Result};
 use std::fs;
@@ -7,15 +8,32 @@ use std::path::PathBuf;
 /// Handle get command - retrieve document content
 pub fn handle(
     cmd: &GetArgs,
-    config: &Config,
+    _config: &Config,
 ) -> Result<()> {
     let file_spec = &cmd.file;
+
+    // Handle --emit-spec: output ANEL specification and exit
+    if cmd.emit_spec {
+        let spec = AnelSpec::get();
+        println!("{}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+
+    // Handle --dry-run: validate parameters without executing
+    if cmd.dry_run {
+        println!("[DRY-RUN] Would execute get with:");
+        println!("  file: {}", file_spec);
+        println!("  limit: {}", cmd.limit);
+        println!("  from: {}", cmd.from);
+        println!("  full: {}", cmd.full);
+        return Ok(());
+    }
 
     // Parse file path with optional :line suffix
     let (file_path, line_spec) = parse_file_spec(file_spec)?;
 
     // Resolve full path
-    let full_path = resolve_path(&file_path, config)?;
+    let full_path = resolve_path(&file_path, _config)?;
 
     if !full_path.exists() {
         anyhow::bail!("File not found: {}", full_path.display());

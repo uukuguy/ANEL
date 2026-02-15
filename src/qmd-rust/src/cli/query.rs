@@ -1,3 +1,4 @@
+use crate::anel::AnelSpec;
 use crate::cli::{QueryArgs, FormatOptions};
 use crate::store::Store;
 use crate::llm::Router;
@@ -12,6 +13,24 @@ pub fn handle(
 ) -> Result<()> {
     let query = &cmd.query;
     let options = convert_options(&cmd.format);
+
+    // Handle --emit-spec: output ANEL specification and exit
+    if cmd.format.emit_spec {
+        let spec = AnelSpec::query();
+        println!("{}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+
+    // Handle --dry-run: validate parameters without executing
+    if cmd.format.dry_run {
+        println!("[DRY-RUN] Would execute query with:");
+        println!("  query: {}", query);
+        println!("  limit: {}", options.limit);
+        println!("  min_score: {}", options.min_score);
+        println!("  collection: {:?}", options.collection);
+        println!("  search_all: {}", options.search_all);
+        return Ok(());
+    }
 
     // Create a Tokio runtime for async operations
     let rt = tokio::runtime::Runtime::new()?;

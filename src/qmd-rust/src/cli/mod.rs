@@ -28,7 +28,7 @@ pub mod agent;
 /// Output format options
 #[derive(Debug, Clone, Args)]
 pub struct FormatOptions {
-    /// Output format: cli, json, md, csv, files, xml
+    /// Output format: cli, json, ndjson, md, csv, files, xml
     #[arg(long, default_value = "cli")]
     pub format: String,
     /// Number of results to return
@@ -49,6 +49,12 @@ pub struct FormatOptions {
     /// Vector backend: qmd_builtin, lancedb
     #[arg(long, default_value = "qmd_builtin")]
     pub vector_backend: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
+    /// Dry-run mode: validate parameters without executing
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 /// Collection management commands
@@ -98,6 +104,15 @@ pub enum Commands {
 pub struct CollectionArgs {
     #[command(subcommand)]
     pub command: CollectionCommands,
+    /// Output format: cli, json, ndjson
+    #[arg(long, default_value = "cli")]
+    pub format: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
+    /// Dry-run mode: validate parameters without executing
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -180,6 +195,15 @@ pub struct GetArgs {
     /// Full content (no limit)
     #[arg(long)]
     pub full: bool,
+    /// Output format: cli, json, ndjson
+    #[arg(long, default_value = "cli")]
+    pub format: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
+    /// Dry-run mode: validate parameters without executing
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Debug)]
@@ -192,6 +216,15 @@ pub struct MultiGetArgs {
     /// Maximum bytes per file
     #[arg(long)]
     pub max_bytes: Option<usize>,
+    /// Output format: cli, json, ndjson
+    #[arg(long, default_value = "cli")]
+    pub format: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
+    /// Dry-run mode: validate parameters without executing
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Debug)]
@@ -226,6 +259,15 @@ pub struct EmbedArgs {
     /// Collection to embed
     #[arg(short, long)]
     pub collection: Option<String>,
+    /// Output format: cli, json, ndjson
+    #[arg(long, default_value = "cli")]
+    pub format: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
+    /// Dry-run mode: validate parameters without executing
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Debug)]
@@ -233,6 +275,18 @@ pub struct UpdateArgs {
     /// Pull remote changes first
     #[arg(long)]
     pub pull: bool,
+    /// Collection to update (default: all)
+    #[arg(short, long)]
+    pub collection: Option<String>,
+    /// Output format: cli, json, ndjson
+    #[arg(long, default_value = "cli")]
+    pub format: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
+    /// Dry-run mode: validate parameters without executing
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Debug)]
@@ -240,6 +294,18 @@ pub struct StatusArgs {
     /// Show detailed status
     #[arg(long)]
     pub verbose: bool,
+    /// Collection to show status for
+    #[arg(short, long)]
+    pub collection: Option<String>,
+    /// Output format: cli, json, ndjson
+    #[arg(long, default_value = "cli")]
+    pub format: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
+    /// Dry-run mode: validate parameters without executing
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Debug)]
@@ -250,6 +316,15 @@ pub struct CleanupArgs {
     /// Remove entries older than N days
     #[arg(long, default_value = "30")]
     pub older_than: u32,
+    /// Collection to clean up
+    #[arg(short, long)]
+    pub collection: Option<String>,
+    /// Output format: cli, json, ndjson
+    #[arg(long, default_value = "cli")]
+    pub format: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
 }
 
 #[derive(Args, Debug)]
@@ -273,4 +348,15 @@ pub struct AgentArgs {
     /// MCP transport
     #[arg(long, default_value = "stdio")]
     pub transport: String,
+    /// Query to process (non-interactive mode)
+    pub query: Option<String>,
+    /// Output format: cli, json, ndjson
+    #[arg(long, default_value = "cli")]
+    pub format: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
+    /// Dry-run mode: validate parameters without executing
+    #[arg(long)]
+    pub dry_run: bool,
 }
