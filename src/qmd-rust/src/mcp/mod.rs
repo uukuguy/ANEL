@@ -9,12 +9,13 @@ use http_body_util::BodyExt;
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::*;
-use rmcp::service::ServiceExt;
+use rmcp::service::{RequestContext, RoleServer, ServiceExt};
 use rmcp::{tool, tool_router, ErrorData as McpError, ServerHandler};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
 use std::convert::Infallible;
+use std::future::Future;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 // ── Stream Tap (Audit Layer) ─────────────────────────────────────
@@ -399,6 +400,24 @@ impl ServerHandler for QmdMcpServer {
             instructions: Some("QMD - AI-powered document search with hybrid BM25 and vector search. Use 'search' for keyword matching, 'vsearch' for semantic search, 'query' for best results combining both, 'get' to read document content, and 'status' to check index health.".into()),
             ..Default::default()
         }
+    }
+
+    fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ListResourceTemplatesResult, McpError>> + Send + '_ {
+        // Return empty templates - resources are accessed via 'get' tool
+        std::future::ready(Ok(ListResourceTemplatesResult::default()))
+    }
+
+    fn read_resource(
+        &self,
+        _request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
+        // Return method not found - resources are accessed via 'get' tool instead
+        std::future::ready(Err(McpError::method_not_found::<ReadResourceRequestMethod>()))
     }
 }
 

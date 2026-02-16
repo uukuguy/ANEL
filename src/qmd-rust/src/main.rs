@@ -33,6 +33,9 @@ fn main() -> Result<()> {
         Commands::Collection(cmd) => {
             crate::cli::collection::handle(cmd, &mut config)?;
         }
+        Commands::Ls(cmd) => {
+            crate::cli::ls::handle(cmd, &config)?;
+        }
         Commands::Context(cmd) => {
             crate::cli::context::handle(cmd, &mut config)?;
         }

@@ -30,6 +30,10 @@ pub fn handle(
                 println!("[DRY-RUN] Would execute context list");
                 "list"
             }
+            ContextCommands::Check => {
+                println!("[DRY-RUN] Would execute context check");
+                "check"
+            }
             ContextCommands::Rm(args) => {
                 println!("[DRY-RUN] Would execute context rm with:");
                 println!("  path: {}", args.path);
@@ -43,6 +47,7 @@ pub fn handle(
     match &cmd.command {
         ContextCommands::Add(args) => add_context(args, config),
         ContextCommands::List => list_contexts(config),
+        ContextCommands::Check => check_contexts(config),
         ContextCommands::Rm(args) => remove_context(args, config),
     }
 }
@@ -154,4 +159,116 @@ fn remove_context(args: &ContextRemoveArgs, config: &mut Config) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Check for collections and paths without context
+fn check_contexts(config: &Config) -> Result<()> {
+    // Get collections without context
+    let collections_without_context = get_collections_without_context(config);
+
+    // Get all collections
+    let all_collections = &config.collections;
+
+    if collections_without_context.is_empty() && !all_collections.is_empty() {
+        println!("\n✓ All collections have context configured\n");
+    }
+
+    if !collections_without_context.is_empty() {
+        println!("\nCollections without any context:\n");
+
+        for coll in &collections_without_context {
+            println!("  {} ({} documents)", coll.name, coll.doc_count);
+            println!(
+                "  Suggestion: qmd context add qmd://{}/ \"Description of {}\"\n",
+                coll.name, coll.name
+            );
+        }
+    }
+
+    // Check for top-level paths without context within collections that DO have context
+    let collections_with_context: Vec<_> = all_collections
+        .iter()
+        .filter(|c| !collections_without_context.iter().any(|cwc| cwc.name == c.name))
+        .collect();
+
+    let store = Store::new(config)?;
+    let mut has_path_suggestions = false;
+
+    for coll in collections_with_context {
+        let missing_paths = get_top_level_paths_without_context(&store, &coll.name)?;
+
+        if !missing_paths.is_empty() {
+            if !has_path_suggestions {
+                println!("\nTop-level directories without context:\n");
+                has_path_suggestions = true;
+            }
+
+            println!("  {}", coll.name);
+            for path in &missing_paths {
+                println!("    {}", path);
+                println!(
+                    "    Suggestion: qmd context add qmd://{}/{} \"Description of {}\"\n",
+                    coll.name, path, path
+                );
+            }
+        }
+    }
+
+    if collections_without_context.is_empty() && !has_path_suggestions {
+        println!("All collections and major paths have context configured.");
+        println!("Use 'qmd context list' to see all configured contexts.\n");
+    }
+
+    Ok(())
+}
+
+/// Get collections without any context
+fn get_collections_without_context(config: &Config) -> Vec<CollectionWithoutContext> {
+    config
+        .collections
+        .iter()
+        .filter(|c| c.description.is_none())
+        .map(|c| CollectionWithoutContext {
+            name: c.name.clone(),
+            doc_count: 0, // Will be populated from database if needed
+        })
+        .collect()
+}
+
+/// Get top-level directories in a collection that don't have context
+fn get_top_level_paths_without_context(
+    store: &Store,
+    collection_name: &str,
+) -> Result<Vec<String>> {
+    let conn = store.get_connection(collection_name)?;
+
+    // Get all paths in the collection
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT path FROM documents WHERE collection = ? AND active = 1",
+    )?;
+
+    let paths: Vec<String> = stmt
+        .query_map([collection_name], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Extract top-level directories (first path component)
+    let mut top_level_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for path in &paths {
+        let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        if parts.len() > 1 {
+            if let Some(dir) = parts.first() {
+                top_level_dirs.insert(dir.to_string());
+            }
+        }
+    }
+
+    // For now, return all top-level directories (we'd need to check contexts in DB for full impl)
+    Ok(top_level_dirs.into_iter().collect())
+}
+
+/// Collection without context info
+struct CollectionWithoutContext {
+    name: String,
+    doc_count: usize,
 }

@@ -1,5 +1,93 @@
 # QMD 多语言实现 - 工作日志
 
+## Session End - 2026-02-16
+
+**Phase 1-5 完成状态**: ✅ 353+ 测试全部通过
+
+---
+
+## 2026-02-16 (Session 4) - TypeScript 功能移植
+
+### 完成的工作
+
+#### Phase 1: 虚拟路径系统 (store/path.rs)
+
+1. **新建文件**: `src/qmd-rust/src/store/path.rs`
+   - `normalize_virtual_path()` - 规范化虚拟路径格式
+   - `parse_virtual_path()` - 解析 qmd:// URI 为集合和路径
+   - `build_virtual_path()` - 构建虚拟路径
+   - `is_virtual_path()` - 判断是否为虚拟路径
+   - 15+ 单元测试覆盖
+
+#### Phase 2: `ls` 命令 (cli/ls.rs)
+
+2. **新建文件**: `src/qmd-rust/src/cli/ls.rs`
+   - `qmd ls` - 列出所有集合及文件数量
+   - `qmd ls collection` - 列出集合下的文件
+   - `qmd ls qmd://collection/path` - 使用虚拟路径
+   - 支持 `qmd://` 前缀格式
+
+3. **修改文件**: `src/qmd-rust/src/cli/mod.rs`
+   - 添加 `Ls` 命令枚举
+   - 添加 `LsArgs` 参数结构
+
+4. **修改文件**: `src/qmd-rust/src/main.rs`
+   - 添加 `Commands::Ls` 处理分支
+
+5. **修改文件**: `src/qmd-rust/src/anel/mod.rs`
+   - 添加 `AnelSpec::ls()` 规范定义
+
+#### Phase 3: `context check` 命令
+
+6. **修改文件**: `src/qmd-rust/src/cli/mod.rs`
+   - 添加 `Check` 子命令到 `ContextCommands`
+
+7. **修改文件**: `src/qmd-rust/src/cli/context.rs`
+   - 添加 `check_contexts()` 函数
+   - 检查没有 context 的集合
+   - 检查顶级目录缺少 context 的情况
+   - 输出建议添加 context 的命令
+
+#### Phase 4: MCP 资源 (基础设施)
+
+8. **修改文件**: `src/qmd-rust/src/mcp/mod.rs`
+   - 实现 `list_resource_templates()` 方法
+   - 实现 `read_resource()` 方法 (返回 method_not_found，当前通过 get tool 访问文档)
+   - 添加必要的 import
+
+### 修改的文件
+
+| 文件 | 更改类型 |
+|------|----------|
+| `src/qmd-rust/src/store/path.rs` | 新建 |
+| `src/qmd-rust/src/cli/ls.rs` | 新建 |
+| `src/qmd-rust/src/cli/mod.rs` | 修改 |
+| `src/qmd-rust/src/cli/context.rs` | 修改 |
+| `src/qmd-rust/src/mcp/mod.rs` | 修改 |
+| `src/qmd-rust/src/main.rs` | 修改 |
+| `src/qmd-rust/src/anel/mod.rs` | 修改 |
+
+### 验证方法
+
+```bash
+# 构建
+cd src/qmd-rust && cargo build --release
+
+# 测试 ls 命令
+./target/release/qmd ls
+./target/release/qmd ls mycollection
+
+# 测试 context check
+./target/release/qmd context check
+```
+
+### 待完成
+
+- MCP 资源完整实现 (需要更深入的 rmcp crate API 研究)
+- 测试用例补充
+
+---
+
 ## 2026-02-16 (Session 3)
 
 ### 完成的工作

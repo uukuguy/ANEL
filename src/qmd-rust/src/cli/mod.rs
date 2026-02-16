@@ -15,6 +15,7 @@ pub struct Cli {
 pub mod collection;
 pub mod context;
 pub mod get;
+pub mod ls;
 pub mod multi_get;
 pub mod search;
 pub mod vsearch;
@@ -27,6 +28,22 @@ pub mod agent;
 pub mod plugin;
 
 /// Output format options
+#[derive(Debug, Clone, Args)]
+pub struct LsArgs {
+    /// Optional path: collection or collection/path
+    /// Supports qmd:// prefix: qmd://collection/path
+    pub path: Option<String>,
+    /// Output format: cli, json, ndjson
+    #[arg(long, default_value = "cli")]
+    pub format: String,
+    /// Emit ANEL specification (JSON Schema) instead of executing
+    #[arg(long)]
+    pub emit_spec: bool,
+    /// Dry-run mode: validate parameters without executing
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
 #[derive(Debug, Clone, Args)]
 pub struct FormatOptions {
     /// Output format: cli, json, ndjson, md, csv, files, xml
@@ -63,6 +80,9 @@ pub struct FormatOptions {
 pub enum Commands {
     /// Collection management
     Collection(CollectionArgs),
+
+    /// List collections or files in a collection
+    Ls(LsArgs),
 
     /// Context management
     Context(ContextArgs),
@@ -181,6 +201,8 @@ pub enum ContextCommands {
     Add(ContextAddArgs),
     /// List contexts
     List,
+    /// Check for missing contexts
+    Check,
     /// Remove context
     Rm(ContextRemoveArgs),
 }

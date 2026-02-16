@@ -725,6 +725,52 @@ impl AnelSpec {
         }
     }
 
+    /// Get spec for ls command
+    pub fn ls() -> Self {
+        Self {
+            version: ANEL_VERSION.to_string(),
+            command: "ls".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Optional path: collection or collection/path. Supports qmd:// prefix"}
+                }
+            }),
+            output_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "collections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "path": {"type": "string"},
+                                "file_count": {"type": "integer"}
+                            }
+                        }
+                    },
+                    "files": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string"},
+                                "title": {"type": "string"},
+                                "size": {"type": "integer"},
+                                "modified_at": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }),
+            error_codes: vec![
+                AnelErrorCode::CollectionNotFound,
+                AnelErrorCode::InvalidInput,
+            ],
+        }
+    }
+
     /// Get spec for context command
     pub fn context() -> Self {
         Self {
