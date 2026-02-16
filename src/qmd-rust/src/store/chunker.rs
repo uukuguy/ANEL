@@ -19,6 +19,14 @@ pub const DEFAULT_CHUNK_SIZE: usize = 3200;
 /// Default overlap in characters (~120 tokens)
 pub const DEFAULT_OVERLAP: usize = 480;
 
+/// Find the nearest UTF-8 character boundary at or before `pos`
+fn prev_char_boundary(text: &str, mut pos: usize) -> usize {
+    while pos > 0 && !text.is_char_boundary(pos) {
+        pos -= 1;
+    }
+    pos
+}
+
 /// Split a document into overlapping chunks.
 ///
 /// - Short documents (< chunk_size * 1.2) return a single chunk.
@@ -42,20 +50,24 @@ pub fn chunk_document(text: &str, chunk_size: usize, overlap: usize) -> Vec<Chun
     let mut start = 0;
 
     while start < text.len() {
-        let end = (start + chunk_size).min(text.len());
+        let end_raw = (start + chunk_size).min(text.len());
+        // Ensure we're at a UTF-8 char boundary
+        let end = prev_char_boundary(text, end_raw);
 
         // If we've reached the end, take the rest
-        if end == text.len() {
+        if end == text.len() || end <= start {
             chunks.push(Chunk {
                 seq: chunks.len(),
                 pos: start,
-                text: text[start..end].to_string(),
+                text: text[start..].to_string(),
             });
             break;
         }
 
         // Find the best split point near `end`
         let split = find_split_point(text, end, start);
+        // Ensure split is at a valid UTF-8 boundary
+        let split = prev_char_boundary(text, split).max(start);
 
         chunks.push(Chunk {
             seq: chunks.len(),
@@ -64,11 +76,13 @@ pub fn chunk_document(text: &str, chunk_size: usize, overlap: usize) -> Vec<Chun
         });
 
         // Advance with overlap
-        let next_start = if split > overlap {
+        let next_start_raw = if split > overlap {
             split - overlap
         } else {
             split
         };
+        // Ensure next_start is at a valid UTF-8 boundary
+        let next_start = prev_char_boundary(text, next_start_raw).max(start);
 
         // Ensure forward progress
         if next_start <= start {
@@ -84,9 +98,15 @@ pub fn chunk_document(text: &str, chunk_size: usize, overlap: usize) -> Vec<Chun
 /// Find the best split point near `target` within the text.
 /// Searches backward from `target` for paragraph, sentence, or word boundaries.
 fn find_split_point(text: &str, target: usize, min_pos: usize) -> usize {
+    // Ensure target is at a valid UTF-8 boundary
+    let target = prev_char_boundary(text, target).max(min_pos);
+
     // Search window: look back up to 20% of chunk_size for a good boundary
     let search_start = if target > 640 { target - 640 } else { min_pos };
     let search_start = search_start.max(min_pos);
+    let search_start = prev_char_boundary(text, search_start).max(min_pos);
+
+    // Safe to slice now that both boundaries are valid
     let region = &text[search_start..target];
 
     // 1. Paragraph boundary (\n\n)
@@ -254,5 +274,162 @@ mod tests {
             text.len(),
             "Last chunk should reach end of document"
         );
+    }
+
+    // ==================== Extended Chunker Tests ====================
+
+    #[test]
+    fn test_chunk_unicode_content() {
+        // Chinese text: each char is 3 bytes in UTF-8
+        let sentence = "这是关于Rust的描述。";
+        let text = sentence.repeat(500); // ~6500 chars, each Chinese char is 3 bytes
+        assert!(text.len() > DEFAULT_CHUNK_SIZE);
+
+        let chunks = chunk_document(&text, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+        assert!(chunks.len() >= 2, "Unicode text should produce multiple chunks");
+
+        // Verify all chunks contain valid UTF-8 (no panics)
+        for chunk in &chunks {
+            assert!(!chunk.text.is_empty());
+            // Verify the text is valid by iterating chars
+            let _ = chunk.text.chars().count();
+        }
+    }
+
+    #[test]
+    fn test_chunk_sentence_boundary_preference() {
+        // Build text with clear sentence boundaries
+        let sentences: Vec<String> = (0..100)
+            .map(|i| format!("This is sentence number {} with enough words to fill space. ", i))
+            .collect();
+        let text = sentences.join("");
+        assert!(text.len() > DEFAULT_CHUNK_SIZE);
+
+        let chunks = chunk_document(&text, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+        assert!(chunks.len() >= 2);
+
+        // First chunk should end at a sentence boundary (". ")
+        let first_text = &chunks[0].text;
+        let trimmed = first_text.trim_end();
+        assert!(
+            trimmed.ends_with('.') || trimmed.ends_with(". "),
+            "First chunk should end near a sentence boundary, got: ...{}",
+            &trimmed[trimmed.len().saturating_sub(20)..]
+        );
+    }
+
+    #[test]
+    fn test_chunk_custom_small_chunk_size() {
+        let text = "Hello world. This is a test. Another sentence here. More content follows. End of text.";
+        // Very small chunk size
+        let chunks = chunk_document(text, 30, 5);
+        assert!(chunks.len() >= 2, "Small chunk_size should produce multiple chunks, got {}", chunks.len());
+    }
+
+    #[test]
+    fn test_chunk_custom_large_chunk_size() {
+        let text = "Short text that fits easily.";
+        let chunks = chunk_document(text, 10000, 100);
+        assert_eq!(chunks.len(), 1, "Large chunk_size should produce single chunk");
+        assert_eq!(chunks[0].text, text);
+    }
+
+    #[test]
+    fn test_chunk_zero_overlap() {
+        let sentence = "Word repeated many times for testing purposes here now. ";
+        let text = sentence.repeat(200);
+
+        let chunks = chunk_document(&text, DEFAULT_CHUNK_SIZE, 0);
+        assert!(chunks.len() >= 2);
+
+        // With zero overlap, chunks should not share starting positions
+        for i in 1..chunks.len() {
+            assert!(
+                chunks[i].pos >= chunks[i - 1].pos + chunks[i - 1].text.len() - 100,
+                "With zero overlap, chunks should have minimal position overlap"
+            );
+        }
+    }
+
+    #[test]
+    fn test_chunk_single_long_word() {
+        // A single very long "word" with no spaces
+        let text = "a".repeat(10000);
+        let chunks = chunk_document(&text, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+        assert!(chunks.len() >= 2, "Long word should still be chunked");
+
+        // All content should be covered
+        let last = chunks.last().unwrap();
+        assert_eq!(last.pos + last.text.len(), text.len());
+    }
+
+    #[test]
+    fn test_chunk_very_large_document() {
+        // 1MB document
+        let sentence = "This is a paragraph of text for testing very large document chunking behavior. ";
+        let text = sentence.repeat(13000); // ~1MB
+        assert!(text.len() > 1_000_000);
+
+        let chunks = chunk_document(&text, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+        assert!(chunks.len() > 100, "1MB doc should produce many chunks, got {}", chunks.len());
+
+        // Verify sequential seq values
+        for (i, chunk) in chunks.iter().enumerate() {
+            assert_eq!(chunk.seq, i);
+        }
+
+        // Verify last chunk reaches end
+        let last = chunks.last().unwrap();
+        assert_eq!(last.pos + last.text.len(), text.len());
+    }
+
+    #[test]
+    fn test_chunk_threshold_boundary() {
+        // Document exactly at the 1.2x threshold
+        let threshold = (DEFAULT_CHUNK_SIZE as f64 * 1.2) as usize;
+
+        // Just under threshold — single chunk
+        let text_under = "x".repeat(threshold - 1);
+        let chunks_under = chunk_document(&text_under, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+        assert_eq!(chunks_under.len(), 1, "Just under threshold should be 1 chunk");
+
+        // At threshold — single chunk (< threshold means single)
+        let text_at = "x".repeat(threshold);
+        let chunks_at = chunk_document(&text_at, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+        assert!(chunks_at.len() >= 1, "At threshold should produce chunks");
+
+        // Just over threshold — multiple chunks
+        let text_over = "x".repeat(threshold + 1);
+        let chunks_over = chunk_document(&text_over, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+        assert!(chunks_over.len() >= 2, "Over threshold should produce multiple chunks");
+    }
+
+    #[test]
+    fn test_chunk_newlines_only() {
+        let text = "\n".repeat(5000);
+        let chunks = chunk_document(&text, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+        assert!(!chunks.is_empty());
+        // Should handle gracefully without panicking
+    }
+
+    #[test]
+    fn test_chunk_mixed_line_endings() {
+        let parts: Vec<String> = (0..100)
+            .map(|i| {
+                if i % 3 == 0 {
+                    format!("Line {} with CRLF ending.\r\n", i)
+                } else if i % 3 == 1 {
+                    format!("Line {} with LF ending.\n", i)
+                } else {
+                    format!("Line {} with paragraph break.\n\n", i)
+                }
+            })
+            .collect();
+        let text = parts.join("");
+        if text.len() > DEFAULT_CHUNK_SIZE {
+            let chunks = chunk_document(&text, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+            assert!(chunks.len() >= 2);
+            // Verify no panics with mixed line endings
+        }
     }
 }

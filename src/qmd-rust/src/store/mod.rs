@@ -1505,6 +1505,178 @@ mod tests {
         assert!(results.is_empty(), "Should find no results for unrelated query");
     }
 
+    // ==================== make_docid Tests ====================
+
+    #[test]
+    fn test_make_docid_format() {
+        let docid = make_docid("my_col", "path/to/doc.md");
+        assert_eq!(docid, "my_col:path/to/doc.md");
+    }
+
+    #[test]
+    fn test_make_docid_special_chars() {
+        let docid = make_docid("col-1", "docs/日本語.md");
+        assert_eq!(docid, "col-1:docs/日本語.md");
+    }
+
+    #[test]
+    fn test_make_docid_empty_parts() {
+        let docid = make_docid("", "");
+        assert_eq!(docid, ":");
+    }
+
+    #[test]
+    fn test_make_docid_with_spaces() {
+        let docid = make_docid("my col", "path with spaces/doc.md");
+        assert_eq!(docid, "my col:path with spaces/doc.md");
+    }
+
+    #[test]
+    fn test_make_docid_with_colon_in_path() {
+        let docid = make_docid("col", "C:/Users/doc.md");
+        assert_eq!(docid, "col:C:/Users/doc.md");
+    }
+
+    // ==================== Hash Extended Tests ====================
+
+    #[test]
+    fn test_calculate_hash_unicode() {
+        let hash1 = Store::calculate_hash("你好世界");
+        let hash2 = Store::calculate_hash("你好世界");
+        assert_eq!(hash1, hash2);
+        // Different from ASCII
+        assert_ne!(hash1, Store::calculate_hash("hello world"));
+    }
+
+    #[test]
+    fn test_calculate_hash_large_content() {
+        let large = "x".repeat(1_000_000);
+        let hash = Store::calculate_hash(&large);
+        assert_eq!(hash.len(), 64); // SHA256 hex is 64 chars
+    }
+
+    #[test]
+    fn test_calculate_hash_whitespace_sensitive() {
+        let h1 = Store::calculate_hash("hello world");
+        let h2 = Store::calculate_hash("hello  world");
+        let h3 = Store::calculate_hash("hello world\n");
+        assert_ne!(h1, h2);
+        assert_ne!(h1, h3);
+    }
+
+    #[test]
+    fn test_calculate_hash_known_sha256() {
+        // SHA256("hello") is well-known
+        let hash = Store::calculate_hash("hello");
+        assert_eq!(hash, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    }
+
+    // ==================== RRF Fusion Extended Tests ====================
+
+    #[test]
+    fn test_rrf_fusion_large_result_set() {
+        let list: Vec<SearchResult> = (0..100)
+            .map(|i| make_result(&format!("doc{}.md", i), 1.0 - i as f32 * 0.001))
+            .collect();
+        let result = Store::rrf_fusion(&[list], None, 60);
+        assert_eq!(result.len(), 100);
+        // Scores should be monotonically decreasing
+        for i in 1..result.len() {
+            assert!(result[i - 1].score >= result[i].score,
+                "Score at {} ({}) should >= score at {} ({})",
+                i - 1, result[i - 1].score, i, result[i].score);
+        }
+    }
+
+    #[test]
+    fn test_rrf_fusion_single_item_lists() {
+        let list1 = vec![make_result("a.md", 0.9)];
+        let list2 = vec![make_result("b.md", 0.8)];
+        let list3 = vec![make_result("c.md", 0.7)];
+        let result = Store::rrf_fusion(&[list1, list2, list3], None, 60);
+        assert_eq!(result.len(), 3);
+        // All have same base RRF score (1/60), so ordering depends on top-rank bonus
+    }
+
+    #[test]
+    fn test_rrf_fusion_mixed_empty_and_nonempty() {
+        let list1 = vec![];
+        let list2 = vec![make_result("doc.md", 0.5)];
+        let list3 = vec![];
+        let result = Store::rrf_fusion(&[list1, list2, list3], None, 60);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "doc.md");
+    }
+
+    #[test]
+    fn test_rrf_fusion_weight_zero() {
+        let list1 = vec![make_result("a.md", 0.9)];
+        let list2 = vec![make_result("b.md", 0.8)];
+        // Weight 0 for list1 means it contributes nothing
+        let result = Store::rrf_fusion(&[list1, list2], Some(vec![0.0, 1.0]), 60);
+        assert_eq!(result.len(), 2);
+        // b.md should rank first since a.md has 0 weight
+        assert_eq!(result[0].path, "b.md");
+    }
+
+    #[test]
+    fn test_rrf_fusion_many_duplicates() {
+        // Same document in all 5 lists
+        let lists: Vec<Vec<SearchResult>> = (0..5)
+            .map(|_| vec![make_result("shared.md", 0.5), make_result("unique.md", 0.3)])
+            .collect();
+        let result = Store::rrf_fusion(&lists, None, 60);
+        assert_eq!(result.len(), 2);
+        // shared.md appears in all 5 lists, should have higher score than unique.md
+        assert_eq!(result[0].path, "shared.md");
+        assert!(result[0].score > result[1].score,
+            "shared.md score {} should be > unique.md score {}",
+            result[0].score, result[1].score);
+    }
+
+    #[test]
+    fn test_rrf_fusion_docid_generated() {
+        let list = vec![make_result("test/path.md", 0.5)];
+        let result = Store::rrf_fusion(&[list], None, 60);
+        // docid should be regenerated from collection + path
+        assert!(result[0].docid.contains("test/path.md"));
+    }
+
+    // ==================== SearchResult Extended Tests ====================
+
+    #[test]
+    fn test_search_result_deserialize() {
+        let json = r#"{"docid":"col:doc.md","path":"doc.md","collection":"col","score":0.75,"lines":10,"title":"Test","hash":"abc","query":null}"#;
+        let r: SearchResult = serde_json::from_str(json).unwrap();
+        assert_eq!(r.path, "doc.md");
+        assert_eq!(r.score, 0.75);
+        assert_eq!(r.query, None);
+    }
+
+    #[test]
+    fn test_search_result_with_query() {
+        let r = SearchResult {
+            docid: make_docid("col", "doc.md"),
+            path: "doc.md".to_string(),
+            collection: "col".to_string(),
+            score: 0.5,
+            lines: 0,
+            title: "Doc".to_string(),
+            hash: "h1".to_string(),
+            query: Some("test query".to_string()),
+        };
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(json.contains("\"query\":\"test query\""));
+    }
+
+    #[test]
+    fn test_search_result_debug() {
+        let r = make_result("doc.md", 0.5);
+        let debug = format!("{:?}", r);
+        assert!(debug.contains("doc.md"));
+        assert!(debug.contains("0.5"));
+    }
+
     #[test]
     fn test_get_stats_empty() {
         let tmp = tempfile::tempdir().unwrap();
