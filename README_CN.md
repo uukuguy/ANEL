@@ -10,6 +10,11 @@
 [![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](#python)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+
+![ANEL 架构](imgs/ANEL-zh.jpeg)
+
+> **阅读更多**：[智能体原生执行层 (ANEL) 架构宣言](docs/ANEL/⭐%20智能体原生执行层%20(ANEL)%20架构宣言%20v1%200——%20AGI%20时代的"数字躯体"重构.md)
+
 ---
 
 ## 痛点 — 为什么需要 ANEL

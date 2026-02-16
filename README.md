@@ -10,6 +10,11 @@
 [![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](#python)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+
+![ANEL Architecture](imgs/ANEL-en.jpeg)
+
+> **Read more**: [ANEL Architecture Manifesto](docs/ANEL/ANEL-Architecture-Manifesto-v1.0.md)
+
 ---
 
 ## The Problem — Why ANEL Exists
