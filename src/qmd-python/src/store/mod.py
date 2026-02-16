@@ -86,46 +86,67 @@ class Store:
         return conn
 
     def _init_schema(self, conn: sqlite3.Connection) -> None:
-        """Initialize database schema."""
+        """Initialize database schema - compatible with original qmd."""
         conn.executescript("""
-            -- Documents table
+            -- Content-addressable storage - source of truth for document content
+            CREATE TABLE IF NOT EXISTS content (
+                hash TEXT PRIMARY KEY,
+                doc TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            -- Documents table - file system layer mapping virtual paths to content hashes
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 collection TEXT NOT NULL,
                 path TEXT NOT NULL,
                 title TEXT NOT NULL,
-                hash TEXT NOT NULL UNIQUE,
+                hash TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 modified_at TEXT NOT NULL,
-                active INTEGER NOT NULL DEFAULT 1
+                active INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY (hash) REFERENCES content(hash) ON DELETE CASCADE,
+                UNIQUE(collection, path)
             );
+
+            -- Indexes
+            CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection, active);
+            CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
+            CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path, active);
 
             -- FTS5 virtual table
             CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
                 filepath, title, body,
-                tokenize='porter unicode61',
-                content='documents',
-                content_rowid='id'
+                tokenize='porter unicode61'
             );
 
-            -- Triggers
-            CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
+            -- FTS triggers - now references content table via documents.hash
+            CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents
+            WHEN new.active = 1
+            BEGIN
                 INSERT INTO documents_fts(rowid, filepath, title, body)
-                VALUES(new.id, new.collection || '/' || new.path, new.title,
-                       (SELECT doc FROM content WHERE hash = new.hash));
+                SELECT
+                    new.id,
+                    new.collection || '/' || new.path,
+                    new.title,
+                    (SELECT doc FROM content WHERE hash = new.hash)
+                WHERE new.active = 1;
             END;
 
             CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-                INSERT INTO documents_fts(documents_fts, rowid, filepath, title, body)
-                VALUES('delete', old.id, old.collection || '/' || old.path, old.title, NULL);
+                DELETE FROM documents_fts WHERE rowid = old.id;
             END;
 
-            -- Content table
-            CREATE TABLE IF NOT EXISTS content (
-                hash TEXT PRIMARY KEY,
-                doc TEXT NOT NULL,
-                size INTEGER NOT NULL DEFAULT 0
-            );
+            CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
+                DELETE FROM documents_fts WHERE rowid = old.id AND new.active = 0;
+                INSERT OR REPLACE INTO documents_fts(rowid, filepath, title, body)
+                SELECT
+                    new.id,
+                    new.collection || '/' || new.path,
+                    new.title,
+                    (SELECT doc FROM content WHERE hash = new.hash)
+                WHERE new.active = 1;
+            END;
 
             -- Vectors table (sqlite-vec)
             CREATE VIRTUAL TABLE IF NOT EXISTS vectors_vec USING vec0(
@@ -143,9 +164,14 @@ class Store:
                 PRIMARY KEY (hash, seq)
             );
 
-            -- Indexes
-            CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
-            CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
+            -- LLM response cache
+            CREATE TABLE IF NOT EXISTS llm_cache (
+                cache_key TEXT PRIMARY KEY,
+                model TEXT NOT NULL,
+                response TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT
+            );
         """)
 
     def bm25_search(

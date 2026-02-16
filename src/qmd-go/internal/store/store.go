@@ -157,8 +157,18 @@ func (s *Store) initSchema(db *sql.DB) error {
 			PRIMARY KEY (hash, seq)
 		);
 
-		CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
+		CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection, active);
 		CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
+		CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path, active);
+
+		-- LLM response cache
+		CREATE TABLE IF NOT EXISTS llm_cache (
+			cache_key TEXT PRIMARY KEY,
+			model TEXT NOT NULL,
+			response TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			expires_at TEXT
+		);
 	`
 
 	_, err := db.Exec(schema)
