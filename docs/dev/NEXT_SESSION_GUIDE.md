@@ -18,18 +18,34 @@
 
 **总计**: 353+ tests 全部通过
 
-### Phase 6: 存储层兼容性修复
+### Phase 6: 存储层兼容性修复 ✅
 
 **Rust 版本**: ✅ 完成
 - 新增 `content` 表（与原版一致）
 - 删除 `documents.doc` 字段（改用外键关联）
 - 删除 `collections` 表（改用 YAML 配置）
 - 删除 `path_contexts` 表（改用 YAML 配置）
-- 添加自动迁移机制
+- 添加 llm_cache 表
 - 测试: 242+ 全部通过
 
-**Go 版本**: 待同步
-**Python 版本**: 待同步
+**Go 版本**: ✅ 完成
+- 添加 llm_cache 表
+- 修复 indexes
+
+**Python 版本**: ✅ 完成
+- 重写 schema 与原版一致
+- 测试: 174 全部通过
+
+### 三版本 Schema 对齐 ✅
+
+| 表 | 原版 | Rust | Go | Python |
+|---|------|------|-----|--------|
+| content | ✅ | ✅ | ✅ | ✅ |
+| documents | ✅ | ✅ | ✅ | ✅ |
+| vectors_vec | ✅ | ✅ | ✅ | ✅ |
+| content_vectors | ✅ | ✅ | ✅ | ✅ |
+| documents_fts | ✅ | ✅ | ✅ | ✅ |
+| llm_cache | ✅ | ✅ | ✅ | ✅ |
 
 ### TypeScript 功能移植 ✅
 
