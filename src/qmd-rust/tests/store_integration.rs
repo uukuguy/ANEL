@@ -20,7 +20,7 @@ fn test_store_new_creates_schema() {
     let conn = store.get_connection("test_col").unwrap();
 
     // Verify core tables exist
-    for table in &["documents", "documents_fts", "content_vectors", "collections"] {
+    for table in &["documents", "documents_fts", "content_vectors", "content"] {
         let count: i64 = conn
             .query_row(
                 &format!(
@@ -472,7 +472,7 @@ fn test_store_schema_has_all_tables() {
     let store = Store::new(&config).unwrap();
     let conn = store.get_connection("test_col").unwrap();
 
-    let expected_tables = ["documents", "documents_fts", "content_vectors", "collections", "path_contexts", "llm_cache"];
+    let expected_tables = ["documents", "documents_fts", "content_vectors", "content", "llm_cache"];
     for table in &expected_tables {
         let count: i64 = conn
             .query_row(
@@ -576,132 +576,6 @@ fn test_get_connection_creates_parent_dir() {
 
     // Parent directory should have been created
     assert!(nested_cache.join("nested_col").exists());
-}
-
-// ==================== Path Context Tests ====================
-
-#[test]
-fn test_path_context_set_and_get() {
-    let tmp = tempdir().unwrap();
-    let content_dir = tmp.path().join("content");
-    fs::create_dir_all(&content_dir).unwrap();
-
-    let config = create_test_config(tmp.path(), "docs", &content_dir);
-    let store = Store::new(&config).unwrap();
-
-    store.set_path_context("docs", "src/main.rs", "Entry point of the application").unwrap();
-
-    let result = store.get_path_context("docs", "src/main.rs").unwrap();
-    assert!(result.is_some());
-    let (desc, _updated_at) = result.unwrap();
-    assert_eq!(desc, "Entry point of the application");
-}
-
-#[test]
-fn test_path_context_not_found() {
-    let tmp = tempdir().unwrap();
-    let content_dir = tmp.path().join("content");
-    fs::create_dir_all(&content_dir).unwrap();
-
-    let config = create_test_config(tmp.path(), "docs", &content_dir);
-    let store = Store::new(&config).unwrap();
-
-    let result = store.get_path_context("docs", "nonexistent.rs").unwrap();
-    assert!(result.is_none());
-}
-
-#[test]
-fn test_path_context_upsert() {
-    let tmp = tempdir().unwrap();
-    let content_dir = tmp.path().join("content");
-    fs::create_dir_all(&content_dir).unwrap();
-
-    let config = create_test_config(tmp.path(), "docs", &content_dir);
-    let store = Store::new(&config).unwrap();
-
-    store.set_path_context("docs", "lib.rs", "Library root").unwrap();
-    store.set_path_context("docs", "lib.rs", "Updated library root").unwrap();
-
-    let (desc, _) = store.get_path_context("docs", "lib.rs").unwrap().unwrap();
-    assert_eq!(desc, "Updated library root");
-}
-
-#[test]
-fn test_path_context_list() {
-    let tmp = tempdir().unwrap();
-    let content_dir = tmp.path().join("content");
-    fs::create_dir_all(&content_dir).unwrap();
-
-    let config = create_test_config(tmp.path(), "docs", &content_dir);
-    let store = Store::new(&config).unwrap();
-
-    store.set_path_context("docs", "a.rs", "File A").unwrap();
-    store.set_path_context("docs", "b.rs", "File B").unwrap();
-    store.set_path_context("docs", "c.rs", "File C").unwrap();
-
-    let contexts = store.list_path_contexts("docs").unwrap();
-    assert_eq!(contexts.len(), 3);
-    // Should be ordered by path
-    assert_eq!(contexts[0].0, "a.rs");
-    assert_eq!(contexts[1].0, "b.rs");
-    assert_eq!(contexts[2].0, "c.rs");
-}
-
-#[test]
-fn test_path_context_list_empty() {
-    let tmp = tempdir().unwrap();
-    let content_dir = tmp.path().join("content");
-    fs::create_dir_all(&content_dir).unwrap();
-
-    let config = create_test_config(tmp.path(), "docs", &content_dir);
-    let store = Store::new(&config).unwrap();
-
-    let contexts = store.list_path_contexts("docs").unwrap();
-    assert!(contexts.is_empty());
-}
-
-#[test]
-fn test_path_context_remove() {
-    let tmp = tempdir().unwrap();
-    let content_dir = tmp.path().join("content");
-    fs::create_dir_all(&content_dir).unwrap();
-
-    let config = create_test_config(tmp.path(), "docs", &content_dir);
-    let store = Store::new(&config).unwrap();
-
-    store.set_path_context("docs", "remove_me.rs", "To be removed").unwrap();
-    let removed = store.remove_path_context("docs", "remove_me.rs").unwrap();
-    assert!(removed);
-
-    let result = store.get_path_context("docs", "remove_me.rs").unwrap();
-    assert!(result.is_none());
-}
-
-#[test]
-fn test_path_context_remove_nonexistent() {
-    let tmp = tempdir().unwrap();
-    let content_dir = tmp.path().join("content");
-    fs::create_dir_all(&content_dir).unwrap();
-
-    let config = create_test_config(tmp.path(), "docs", &content_dir);
-    let store = Store::new(&config).unwrap();
-
-    let removed = store.remove_path_context("docs", "never_existed.rs").unwrap();
-    assert!(!removed);
-}
-
-#[test]
-fn test_path_context_unicode_path() {
-    let tmp = tempdir().unwrap();
-    let content_dir = tmp.path().join("content");
-    fs::create_dir_all(&content_dir).unwrap();
-
-    let config = create_test_config(tmp.path(), "docs", &content_dir);
-    let store = Store::new(&config).unwrap();
-
-    store.set_path_context("docs", "文档/说明.md", "中文路径测试").unwrap();
-    let (desc, _) = store.get_path_context("docs", "文档/说明.md").unwrap().unwrap();
-    assert_eq!(desc, "中文路径测试");
 }
 
 // ==================== LLM Cache Tests ====================

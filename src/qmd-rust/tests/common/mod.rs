@@ -74,6 +74,19 @@ fn init_sqlite_vec() {
 /// Replicate Store::init_schema so integration tests can prepare databases
 /// without needing a full Store instance.
 fn init_schema(conn: &Connection) {
+    // Content table - content-addressable storage
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS content (
+            hash TEXT PRIMARY KEY,
+            doc TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        "#,
+    )
+    .unwrap();
+
+    // Documents table - file system layer mapping virtual paths to content hashes
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS documents (
@@ -81,12 +94,22 @@ fn init_schema(conn: &Connection) {
             collection TEXT NOT NULL,
             path TEXT NOT NULL,
             title TEXT NOT NULL,
-            hash TEXT NOT NULL UNIQUE,
-            doc TEXT NOT NULL,
+            hash TEXT NOT NULL,
             created_at TEXT NOT NULL,
             modified_at TEXT NOT NULL,
-            active INTEGER NOT NULL DEFAULT 1
+            active INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY (hash) REFERENCES content(hash) ON DELETE CASCADE,
+            UNIQUE(collection, path)
         );
+        "#,
+    )
+    .unwrap();
+
+    conn.execute_batch(
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection, active);
+        CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
+        CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path, active);
         "#,
     )
     .unwrap();
@@ -101,23 +124,34 @@ fn init_schema(conn: &Connection) {
     )
     .unwrap();
 
+    // FTS triggers - now references content table via documents.hash
     conn.execute_batch(
         r#"
-        CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
+        CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents
+        WHEN new.active = 1
+        BEGIN
             INSERT INTO documents_fts(rowid, filepath, title, body)
-            VALUES(new.id, new.collection || '/' || new.path, new.title, new.doc);
+            SELECT
+                new.id,
+                new.collection || '/' || new.path,
+                new.title,
+                (SELECT doc FROM content WHERE hash = new.hash)
+            WHERE new.active = 1;
         END;
 
         CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-            INSERT INTO documents_fts(documents_fts, rowid, filepath, title, body)
-            VALUES('delete', old.id, old.collection || '/' || old.path, old.title, NULL);
+            DELETE FROM documents_fts WHERE rowid = old.id;
         END;
 
         CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-            INSERT INTO documents_fts(documents_fts, rowid, filepath, title, body)
-            VALUES('delete', old.id, old.collection || '/' || old.path, old.title, NULL);
-            INSERT INTO documents_fts(rowid, filepath, title, body)
-            VALUES(new.id, new.collection || '/' || new.path, new.title, new.doc);
+            DELETE FROM documents_fts WHERE rowid = old.id AND new.active = 0;
+            INSERT OR REPLACE INTO documents_fts(rowid, filepath, title, body)
+            SELECT
+                new.id,
+                new.collection || '/' || new.path,
+                new.title,
+                (SELECT doc FROM content WHERE hash = new.hash)
+            WHERE new.active = 1;
         END;
         "#,
     )
@@ -147,22 +181,16 @@ fn init_schema(conn: &Connection) {
     )
     .unwrap();
 
+    // LLM cache table
     conn.execute_batch(
         r#"
-        CREATE TABLE IF NOT EXISTS collections (
-            name TEXT PRIMARY KEY,
-            path TEXT NOT NULL,
-            pattern TEXT,
-            description TEXT
+        CREATE TABLE IF NOT EXISTS llm_cache (
+            cache_key TEXT PRIMARY KEY,
+            model TEXT NOT NULL,
+            response TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT
         );
-        "#,
-    )
-    .unwrap();
-
-    conn.execute_batch(
-        r#"
-        CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
-        CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
         "#,
     )
     .unwrap();
@@ -170,10 +198,19 @@ fn init_schema(conn: &Connection) {
 
 /// Insert a test document into an already-initialized database.
 pub fn insert_test_doc(conn: &Connection, collection: &str, path: &str, title: &str, content: &str, hash: &str) {
+    // First insert content
     conn.execute(
-        "INSERT INTO documents (collection, path, title, hash, doc, created_at, modified_at, active)
-         VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'), datetime('now'), 1)",
-        rusqlite::params![collection, path, title, hash, content],
+        "INSERT OR REPLACE INTO content (hash, doc, created_at) VALUES (?1, ?2, datetime('now'))",
+        rusqlite::params![hash, content],
+    )
+    .unwrap();
+
+    // Then insert document reference
+    conn.execute(
+        "INSERT INTO documents (collection, path, title, hash, created_at, modified_at, active)
+         VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'), 1)
+         ON CONFLICT(collection, path) DO UPDATE SET title = excluded.title, hash = excluded.hash, active = 1",
+        rusqlite::params![collection, path, title, hash],
     )
     .unwrap();
 }

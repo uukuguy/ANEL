@@ -1,6 +1,114 @@
 # QMD 多语言实现 - 工作日志
 
-## Session End - 2026-02-16
+## Session End - 2026-02-16 (Session 5)
+
+**Phase 1-5 完成状态**: ✅ 353+ 测试全部通过
+
+---
+
+## 2026-02-16 (Session 5) - Phase 6 探索
+
+### 完成的工作
+
+#### Rust Agent 交互模式探索
+
+1. **确认 Rust Agent 已完整实现**
+   - 文件: `src/qmd-rust/src/cli/agent.rs`
+   - 功能: classify_intent() 意图分类、交互模式、强制路由
+   - 测试: 14 个单元测试全部通过
+
+2. **验证 Rust Agent 可运行**
+   - 命令: `./target/release/qmd-rust agent "rust async"`
+   - 输出: `[keyword (BM25)] rust async`
+
+3. **Python Agent 评估**
+   - Python 版本仅为存根 (stub)
+   - 用户决定暂不实施 Python 实现
+
+### 修改的文件 (已回滚)
+
+| 文件 | 状态 |
+|------|------|
+| src/qmd-python/src/cli/agent.py | 回滚 |
+| src/qmd-python/src/cli/app.py | 回滚 |
+| src/qmd-python/tests/test_agent.py | 删除 |
+
+### 验证方法
+
+```bash
+# Rust Agent 测试
+cd src/qmd-rust && cargo test --lib agent
+
+# 运行 Rust Agent
+./target/release/qmd-rust agent "query"
+```
+
+---
+
+## 2026-02-16 (Session 6) - 存储层兼容性修复
+
+### 背景
+用户指出各版本存储库不兼容问题，需要与原版 qmd 完全一致。
+
+### 原版 QMD Schema
+- `content` 表：hash (PK), doc, created_at
+- `documents` 表：通过 hash 外键关联 content
+- `llm_cache` 表：hash (PK), result, created_at
+- `content_vectors` 表：hash, seq, pos, model, embedded_at
+- `vectors_vec` 表：hash_seq (PK), embedding
+- `documents_fts` 表 + triggers
+
+### 关键差异
+- 原版无 `path_contexts` 表（改用 YAML 配置）
+- 原版无 `collections` 表（改用 YAML 配置）
+- 文档内容存独立 content 表，而非 documents.doc
+
+### 修改的文件
+
+| 文件 | 更改类型 |
+|------|----------|
+| src/qmd-rust/src/store/mod.rs | 修改 |
+
+### Rust 存储层兼容性修改完成
+
+1. **Schema 修改** (`src/qmd-rust/src/store/mod.rs`)
+   - 新增 `content` 表 (hash PK, doc, created_at)
+   - 删除 `documents.doc` 字段，改为通过 hash 外键关联 content
+   - 删除 `collections` 表（改用 YAML 配置）
+   - 删除 `path_contexts` 表（改用 YAML 配置）
+   - 修改 FTS triggers 从 content 表获取文档内容
+
+2. **迁移机制** (`src/qmd-rust/src/store/mod.rs`)
+   - 添加 `check_migration_needed()` 检测旧 schema
+   - 添加 `migrate_from_old_schema()` 自动迁移数据
+
+3. **测试更新**
+   - 更新 `tests/common/mod.rs` 使用新 schema
+   - 更新 `tests/store_integration.rs` 删除 path_contexts 测试
+   - 所有测试通过：242+ tests
+
+### 修改的文件
+
+| 文件 | 更改类型 |
+|------|----------|
+| src/qmd-rust/src/store/mod.rs | 修改 |
+| src/qmd-rust/tests/common/mod.rs | 修改 |
+| src/qmd-rust/tests/store_integration.rs | 修改 |
+
+### 待完成
+
+- Go 版本 schema 同步
+- Python 版本 schema 同步
+```
+
+### 待完成
+
+- Go 版本 Agent 实现 (可选)
+- Phase 7 Python 补充测试
+
+---
+
+## Session End - 2026-02-16 (Session 4)
 
 **Phase 1-5 完成状态**: ✅ 353+ 测试全部通过
 

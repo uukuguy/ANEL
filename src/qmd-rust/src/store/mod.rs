@@ -190,7 +190,21 @@ impl Store {
     fn init_schema(conn: &Connection) -> Result<()> {
         info!("Initializing database schema");
 
-        // Create tables one by one with error handling
+        // Check if we need to migrate from old schema
+        let needs_migration = Self::check_migration_needed(conn)?;
+
+        // Create content table first (content-addressable storage)
+        conn.execute_batch(r#"
+            -- Content-addressable storage - source of truth for document content
+            CREATE TABLE IF NOT EXISTS content (
+                hash TEXT PRIMARY KEY,
+                doc TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+        "#)?;
+
+        // Documents table - file system layer mapping virtual paths to content hashes
+        // Collections are managed in ~/.config/qmd/index.yml
         conn.execute_batch(r#"
             -- Documents table
             CREATE TABLE IF NOT EXISTS documents (
@@ -198,12 +212,20 @@ impl Store {
                 collection TEXT NOT NULL,
                 path TEXT NOT NULL,
                 title TEXT NOT NULL,
-                hash TEXT NOT NULL UNIQUE,
-                doc TEXT NOT NULL,
+                hash TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 modified_at TEXT NOT NULL,
-                active INTEGER NOT NULL DEFAULT 1
+                active INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY (hash) REFERENCES content(hash) ON DELETE CASCADE,
+                UNIQUE(collection, path)
             );
+        "#)?;
+
+        conn.execute_batch(r#"
+            -- Create indexes
+            CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection, active);
+            CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
+            CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path, active);
         "#)?;
 
         conn.execute_batch(r#"
@@ -214,23 +236,36 @@ impl Store {
             );
         "#)?;
 
+        // FTS triggers - now references content table via documents.hash
         conn.execute_batch(r#"
             -- Triggers to keep FTS index synchronized
-            CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
+            CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents
+            WHEN new.active = 1
+            BEGIN
                 INSERT INTO documents_fts(rowid, filepath, title, body)
-                VALUES(new.id, new.collection || '/' || new.path, new.title, new.doc);
+                SELECT
+                    new.id,
+                    new.collection || '/' || new.path,
+                    new.title,
+                    (SELECT doc FROM content WHERE hash = new.hash)
+                WHERE new.active = 1;
             END;
 
             CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-                INSERT INTO documents_fts(documents_fts, rowid, filepath, title, body)
-                VALUES('delete', old.id, old.collection || '/' || old.path, old.title, NULL);
+                DELETE FROM documents_fts WHERE rowid = old.id;
             END;
 
             CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-                INSERT INTO documents_fts(documents_fts, rowid, filepath, title, body)
-                VALUES('delete', old.id, old.collection || '/' || old.path, old.title, NULL);
-                INSERT INTO documents_fts(rowid, filepath, title, body)
-                VALUES(new.id, new.collection || '/' || new.path, new.title, new.doc);
+                -- Delete from FTS if no longer active
+                DELETE FROM documents_fts WHERE rowid = old.id AND new.active = 0;
+                -- Update FTS if still/newly active
+                INSERT OR REPLACE INTO documents_fts(rowid, filepath, title, body)
+                SELECT
+                    new.id,
+                    new.collection || '/' || new.path,
+                    new.title,
+                    (SELECT doc FROM content WHERE hash = new.hash)
+                WHERE new.active = 1;
             END;
         "#)?;
 
@@ -257,32 +292,6 @@ impl Store {
         "#)?;
 
         conn.execute_batch(r#"
-            -- Collections table
-            CREATE TABLE IF NOT EXISTS collections (
-                name TEXT PRIMARY KEY,
-                path TEXT NOT NULL,
-                pattern TEXT,
-                description TEXT
-            );
-        "#)?;
-
-        conn.execute_batch(r#"
-            -- Create indexes
-            CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
-            CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
-        "#)?;
-
-        conn.execute_batch(r#"
-            -- Path contexts for relevance hints
-            CREATE TABLE IF NOT EXISTS path_contexts (
-                path TEXT PRIMARY KEY,
-                description TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-        "#)?;
-
-        conn.execute_batch(r#"
             -- LLM response cache
             CREATE TABLE IF NOT EXISTS llm_cache (
                 cache_key TEXT PRIMARY KEY,
@@ -293,6 +302,48 @@ impl Store {
             );
         "#)?;
 
+        // Run migration if needed
+        if needs_migration {
+            info!("Migrating from old schema...");
+            Self::migrate_from_old_schema(conn)?;
+        }
+
+        Ok(())
+    }
+
+    /// Check if migration from old schema is needed
+    fn check_migration_needed(conn: &Connection) -> Result<bool> {
+        // Check if old schema exists (documents has 'doc' column)
+        let table_info: Vec<(String, String)> = conn
+            .prepare("PRAGMA table_info(documents)")?
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let has_doc_column = table_info.iter().any(|(name, _)| name == "doc");
+        let has_content_table = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='content'")?
+            .query_row([], |row| row.get::<_, String>(0))
+            .is_ok();
+
+        // Need migration if documents has 'doc' column but content table doesn't exist
+        Ok(has_doc_column && !has_content_table)
+    }
+
+    /// Migrate from old schema (documents.doc) to new schema (content table)
+    fn migrate_from_old_schema(conn: &Connection) -> Result<()> {
+        info!("Running schema migration: copying documents to content table");
+
+        // Copy distinct documents to content table
+        conn.execute(
+            "INSERT OR IGNORE INTO content (hash, doc, created_at)
+             SELECT hash, doc, created_at FROM documents WHERE doc IS NOT NULL",
+            [],
+        )?;
+
+        info!("Migration complete");
         Ok(())
     }
 
@@ -1004,18 +1055,23 @@ impl Store {
                             continue;
                         }
 
-                        // Upsert document (includes doc content directly now)
-                        let doc_ref: &str = &content;
+                        // Upsert content first (content-addressable storage)
                         conn.execute(
-                            "INSERT INTO documents (collection, path, title, hash, doc, created_at, modified_at, active)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-                             ON CONFLICT(hash) DO UPDATE SET
-                                path = excluded.path,
+                            "INSERT OR REPLACE INTO content (hash, doc, created_at)
+                             VALUES (?, ?, ?)",
+                            [&hash, &content, &created.to_rfc3339()],
+                        )?;
+
+                        // Then upsert document reference
+                        conn.execute(
+                            "INSERT INTO documents (collection, path, title, hash, created_at, modified_at, active)
+                             VALUES (?, ?, ?, ?, ?, ?, 1)
+                             ON CONFLICT(collection, path) DO UPDATE SET
                                 title = excluded.title,
-                                doc = excluded.doc,
+                                hash = excluded.hash,
                                 modified_at = excluded.modified_at,
                                 active = 1",
-                            [&collection.name, &rel_path, &title, &hash, doc_ref,
+                            [&collection.name, &rel_path, &title, &hash,
                              &created.to_rfc3339(), &modified.to_rfc3339()],
                         )?;
 
@@ -1423,16 +1479,24 @@ mod tests {
         // Use init_test_db to load sqlite-vec extension
         let conn = init_test_db(&db_path);
 
-        // Insert test documents
+        // Insert test documents - first content, then document reference
         conn.execute(
-            "INSERT INTO documents (collection, path, title, hash, doc, created_at, modified_at, active)
-             VALUES ('test_col', 'rust_guide.md', 'Rust Programming Guide', 'hash1', 'Rust is a systems programming language', datetime('now'), datetime('now'), 1)",
+            "INSERT OR REPLACE INTO content (hash, doc, created_at) VALUES ('hash1', 'Rust is a systems programming language', datetime('now'))",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO documents (collection, path, title, hash, created_at, modified_at, active)
+             VALUES ('test_col', 'rust_guide.md', 'Rust Programming Guide', 'hash1', datetime('now'), datetime('now'), 1)",
             [],
         ).unwrap();
 
         conn.execute(
-            "INSERT INTO documents (collection, path, title, hash, doc, created_at, modified_at, active)
-             VALUES ('test_col', 'python_guide.md', 'Python Tutorial', 'hash2', 'Python is a dynamic programming language', datetime('now'), datetime('now'), 1)",
+            "INSERT OR REPLACE INTO content (hash, doc, created_at) VALUES ('hash2', 'Python is a dynamic programming language', datetime('now'))",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO documents (collection, path, title, hash, created_at, modified_at, active)
+             VALUES ('test_col', 'python_guide.md', 'Python Tutorial', 'hash2', datetime('now'), datetime('now'), 1)",
             [],
         ).unwrap();
 
@@ -1478,9 +1542,14 @@ mod tests {
 
         let conn = init_test_db(&db_path);
 
+        // Insert test document - first content, then document reference
         conn.execute(
-            "INSERT INTO documents (collection, path, title, hash, doc, created_at, modified_at, active)
-             VALUES ('test_col', 'doc.md', 'Test', 'hash1', 'Hello world', datetime('now'), datetime('now'), 1)",
+            "INSERT OR REPLACE INTO content (hash, doc, created_at) VALUES ('hash1', 'Hello world', datetime('now'))",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO documents (collection, path, title, hash, created_at, modified_at, active)
+             VALUES ('test_col', 'doc.md', 'Test', 'hash1', datetime('now'), datetime('now'), 1)",
             [],
         ).unwrap();
 
