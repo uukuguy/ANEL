@@ -31,6 +31,25 @@ bm25:
 vector:
   backend: "qmd_builtin"   # 缺省，使用 sqlite-vec
   # backend: "lancedb"     # 可选
+  # backend: "qdrant"     # 可选：Qdrant 向量数据库
+
+  # embeddinggemma-300M 模型输出 768 维向量
+  vector_size: 768
+```
+
+### Qdrant 配置
+
+当使用 Qdrant 作为向量后端时，需要配置 Qdrant 连接：
+
+```yaml
+vector:
+  backend: "qdrant"
+  model: "embeddinggemma-300M"
+  vector_size: 768
+  qdrant:
+    url: "http://localhost:6333"
+    api_key: ""  # 可选，需要认证时填写
+    collection: "qmd_documents"
 ```
 
 ### CLI 参数

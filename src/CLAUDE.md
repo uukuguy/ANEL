@@ -34,7 +34,7 @@ CREATE VIRTUAL TABLE documents_fts USING fts5(
 -- sqlite-vec 向量
 CREATE VIRTUAL TABLE vectors_vec USING vec0(
     hash_seq TEXT PRIMARY KEY,
-    embedding float[384] distance_metric=cosine
+    embedding float[768] distance_metric=cosine
 );
 ```
 

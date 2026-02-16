@@ -108,6 +108,37 @@ cd src/qmd-rust && cargo test --lib agent
 
 ---
 
+## 2026-02-17 - 配置文件一致性调整
+
+### 背景
+
+用户要求检查 `src/shared/` 下的配置文件是否与架构和代码实现相匹配。发现多个不一致之处。
+
+### 发现的问题
+
+1. **Embedding 维度不匹配** (严重)
+   - 配置文件默认值: 384
+   - Rust/TypeScript 实际使用: 768 (embeddinggemma-300M)
+
+2. **Qdrant 配置完全缺失** (严重)
+   - 代码已实现 Qdrant 后端支持
+   - 配置文件中没有 Qdrant 相关配置项
+
+### 修改的文件
+
+| 文件 | 修改内容 |
+|------|----------|
+| src/shared/index.yaml | 添加 vector_size: 768 + Qdrant 配置模板 |
+| src/shared/example-config.yaml | 添加 vector_size: 768 + Qdrant 配置模板 |
+| src/shared/README.md | 添加 Qdrant 配置说明 |
+| src/CLAUDE.md | 更新 schema 中向量维度为 768 |
+
+### 验证
+
+修改后的配置文件现在与 Rust/TypeScript 实现保持一致：
+- 向量维度: 768 (匹配 embeddinggemma-300M)
+- 向量后端: qmd_builtin / lancedb / qdrant
+
 ## Session End - 2026-02-16 (Session 4)
 
 **Phase 1-5 完成状态**: ✅ 353+ 测试全部通过

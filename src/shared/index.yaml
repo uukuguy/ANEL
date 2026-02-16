@@ -7,8 +7,15 @@ bm25:
 
 # 向量后端配置
 vector:
-  backend: "qmd_builtin"  # qmd_builtin 或 lancedb
+  backend: "qmd_builtin"  # qmd_builtin, lancedb, 或 qdrant
   model: "embeddinggemma-300M"
+  vector_size: 768  # embeddinggemma-300M 输出 768 维向量
+
+  # Qdrant 配置 (当 backend 为 qdrant 时使用)
+  # qdrant:
+  #   url: "http://localhost:6333"
+  #   api_key: ""  # 可选
+  #   collection: "qmd_documents"
 
 # 集合配置
 collections:

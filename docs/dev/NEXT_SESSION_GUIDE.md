@@ -1,7 +1,7 @@
 # Next Session Guide - ANEL Project
 
-**Last Updated**: 2026-02-16
-**Current Status**: Phase 1-5 完成，Phase 6 探索完成
+**Last Updated**: 2026-02-17
+**Current Status**: Phase 1-5 完成，Phase 6 完成，配置文件一致性调整完成
 **Branch**: ANEL
 
 ## 当前状态
@@ -55,6 +55,18 @@
 | ls 命令 | cli/ls.rs | ✅ 完成 |
 | context check | cli/context.rs | ✅ 完成 |
 | MCP 资源基础设施 | mcp/mod.rs | ✅ 完成 |
+
+### 配置文件一致性调整 ✅
+
+**修复的问题**:
+- Embedding 维度: 从 384 改为 768（匹配 embeddinggemma-300M）
+- Qdrant 配置: 添加 Qdrant 后端配置模板
+
+**修改的文件**:
+- `src/shared/index.yaml`
+- `src/shared/example-config.yaml`
+- `src/shared/README.md`
+- `src/CLAUDE.md`
 
 ## 待完成
 
