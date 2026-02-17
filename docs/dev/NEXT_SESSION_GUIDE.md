@@ -1,7 +1,7 @@
 # Next Session Guide - ANEL Project
 
 **Last Updated**: 2026-02-17
-**Current Status**: Phase 1-5 完成，Phase 6 完成，配置文件一致性调整完成，**LanceDB 后端实现完成**
+**Current Status**: Phase 1-5 完成，Phase 6 完成，配置文件一致性调整完成，LanceDB 后端实现完成，**文档对齐完成**
 **Branch**: dev
 
 ## 当前状态
@@ -95,6 +95,28 @@ vector:
 **待完成**:
 - 运行时验证（需要实际 embedder）
 - 集成测试
+
+### 文档对齐 ✅ (2026-02-17)
+
+**完成内容**:
+- 分析了 src/ 目录下 README.md 和 CLAUDE.md 与实际代码的不一致
+- 更新 src/README.md: 添加 TypeScript 版本、完整 CLI 命令列表、Rust 所有模块
+- 更新 src/CLAUDE.md: 添加 TypeScript 命名约定、完整 CLI 命令、ANEL 协议支持
+- 更新 src/shared/README.md: 修正语言数量、更新脚本列表
+- 创建验证脚本: verify_qmd_compat.sh, compare_qmd_impls.sh
+
+**发现的不一致**:
+- README 提到"三种语言"，实际是四种（Rust/Go/Python/TypeScript）
+- CLI 命令不完整，缺少 context, get, multi-get, ls, cleanup 等
+- Rust 模块缺少 anel, formatter, plugin, server
+- shared/ 目录结构与文档不符
+
+**修改的文件**:
+- `src/README.md`
+- `src/CLAUDE.md`
+- `src/shared/README.md`
+- `src/shared/scripts/verify_qmd_compat.sh` (新增)
+- `src/shared/scripts/compare_qmd_impls.sh` (新增)
 
 ### 架构文档更新 ✅
 
