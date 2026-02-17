@@ -375,3 +375,73 @@ pub struct DocumentInput {
     pub hash: String,
     pub embedding: Option<Vec<f32>>,
 }
+
+impl LanceDbBackend {
+    /// Sync documents from SQLite to LanceDB
+    ///
+    /// This method reads all active documents from SQLite and inserts them into LanceDB.
+    /// It uses the provided embedder to generate embeddings for each document.
+    /// After syncing, it creates FTS and vector indexes if they don't exist.
+    pub async fn sync_from_sqlite<F>(
+        &self,
+        collection: &str,
+        conn: &rusqlite::Connection,
+        embedder: F,
+    ) -> Result<usize>
+    where
+        F: Fn(&str) -> Result<Vec<f32>>,
+    {
+        // Query documents with their content
+        let mut stmt = conn.prepare(
+            "SELECT d.id, d.path, d.title, c.content, d.hash
+             FROM documents d
+             JOIN content c ON d.hash = c.hash
+             WHERE d.collection = ? AND d.active = 1"
+        )?;
+
+        // Ensure FTS and vector indexes exist before inserting
+        self.ensure_fts_index(collection).await?;
+        self.ensure_vector_index(collection).await?;
+
+        let rows: Vec<(i64, String, String, String, String)> = stmt
+            .query_map([collection], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if rows.is_empty() {
+            log::info!("No documents to sync for collection '{}'", collection);
+            return Ok(0);
+        }
+
+        let mut documents = Vec::with_capacity(rows.len());
+
+        for (id, path, title, body, hash) in rows {
+            // Generate embedding for the document body
+            let embedding = embedder(&body).ok();
+
+            documents.push(DocumentInput {
+                id,
+                path,
+                title,
+                body,
+                hash,
+                embedding,
+            });
+        }
+
+        let count = documents.len();
+
+        // Insert documents into LanceDB
+        self.insert_documents(collection, documents).await?;
+
+        Ok(count)
+    }
+}

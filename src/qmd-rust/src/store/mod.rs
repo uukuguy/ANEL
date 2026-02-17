@@ -78,7 +78,7 @@ impl Store {
         let lance_backend = if matches!(config.bm25.backend, BM25Backend::LanceDb)
             || matches!(config.vector.backend, VectorBackend::LanceDb)
         {
-            let embedding_dim = 384; // Default, should match embedder config
+            let embedding_dim = config.vector.lancedb.embedding_dim;
             let db_path = config.cache_path.clone();
             let mut backend = LanceDbBackend::new(db_path, embedding_dim);
 
@@ -1167,6 +1167,70 @@ impl Store {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Sync documents from SQLite to LanceDB
+    ///
+    /// This method imports all active documents from SQLite into LanceDB.
+    /// It uses the provided embedder function to generate vectors for each document.
+    ///
+    /// # Arguments
+    /// * `collection` - The collection to sync
+    /// * `embedder` - A closure that takes text and returns embeddings
+    ///
+    /// # Returns
+    /// * `Ok(usize)` - Number of documents synced
+    /// * `Err(anyhow::Error)` - Error if sync fails
+    #[cfg(feature = "lancedb")]
+    pub fn sync_to_lance<F>(&self, collection: &str, embedder: F) -> Result<usize>
+    where
+        F: Fn(&str) -> Result<Vec<f32>>,
+    {
+        let Some(ref backend_mutex) = self.lance_backend else {
+            return Ok(0);
+        };
+
+        let conn = self.get_connection(collection)?;
+
+        let rt = tokio::runtime::Runtime::new()?;
+        let count = rt.block_on(async {
+            let backend = backend_mutex.lock().unwrap();
+            backend
+                .sync_from_sqlite(collection, &conn, embedder)
+                .await
+        })?;
+
+        info!("Synced {} documents to LanceDB for collection '{}'", count, collection);
+        Ok(count)
+    }
+
+    /// Ensure LanceDB indexes exist for a collection
+    ///
+    /// This method creates FTS and vector indexes if they don't exist.
+    /// It can be called to prepare a collection for searching.
+    ///
+    /// # Arguments
+    /// * `collection` - The collection to ensure indexes for
+    ///
+    /// # Returns
+    /// * `Ok(())` - Success
+    /// * `Err(anyhow::Error)` - Error if index creation fails
+    #[cfg(feature = "lancedb")]
+    pub fn ensure_lance_indexes(&self, collection: &str) -> Result<()> {
+        let Some(ref backend_mutex) = self.lance_backend else {
+            return Ok(());
+        };
+
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let backend = backend_mutex.lock().unwrap();
+            backend.ensure_fts_index(collection).await?;
+            backend.ensure_vector_index(collection).await?;
+            Ok::<(), anyhow::Error>(())
+        })?;
+
+        info!("Ensured LanceDB indexes for collection '{}'", collection);
         Ok(())
     }
 }

@@ -99,6 +99,29 @@ pub struct VectorBackendConfig {
     /// Qdrant-specific configuration
     #[serde(default)]
     pub qdrant: QdrantConfig,
+    /// LanceDB-specific configuration
+    #[serde(default)]
+    pub lancedb: LanceDbConfig,
+}
+
+/// LanceDB embedded database configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LanceDbConfig {
+    /// Embedding dimension (must match the embedding model)
+    #[serde(default = "default_embedding_dim")]
+    pub embedding_dim: usize,
+}
+
+impl Default for LanceDbConfig {
+    fn default() -> Self {
+        Self {
+            embedding_dim: default_embedding_dim(),
+        }
+    }
+}
+
+fn default_embedding_dim() -> usize {
+    384
 }
 
 /// Qdrant vector database configuration
@@ -147,6 +170,7 @@ impl Default for VectorBackendConfig {
             backend: VectorBackend::QmdBuiltin,
             model: "embeddinggemma-300M".to_string(),
             qdrant: QdrantConfig::default(),
+            lancedb: LanceDbConfig::default(),
         }
     }
 }
