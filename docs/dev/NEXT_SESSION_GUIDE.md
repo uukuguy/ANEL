@@ -1,7 +1,7 @@
 # Next Session Guide - ANEL Project
 
-**Last Updated**: 2026-02-17
-**Current Status**: Phase 1-5 完成，Phase 6 完成，配置文件一致性调整完成，LanceDB 后端实现完成，**文档对齐完成**
+**Last Updated**: 2026-02-18
+**Current Status**: Phase 1-6 完成，Phase 9 (ANEL Copilot) 完成，**anel-copilot MCP Server + CLI + 43 tests**
 **Branch**: dev
 
 ## 当前状态
@@ -153,11 +153,43 @@ vector:
 8. CLI 封装
 9. 文档和发布
 
+### Phase 9: ANEL Copilot 实施 ✅ (2026-02-18)
+
+**完成内容**:
+- 创建 `src/anel-copilot/` TypeScript/Node.js 项目
+- MCP Server: 使用最新 `McpServer` + `registerTool()` + Zod schema API
+- 4 个 MCP 工具: `anel_analyze`, `anel_fix`, `anel_verify`, `anel_explain`
+- 核心模块: detector（语言/框架检测）、rules（5条ANEL规则+加权评分）、analyzer（合规分析）、generator（四语言自动修复）、verifier（运行时验证）
+- CLI: `anel-copilot analyze|fix|verify` 子命令
+- 测试: 4 个测试文件，43 tests 全部通过（vitest）
+
+**技术决策**:
+- MCP SDK API 已从旧版 `Server` + `setRequestHandler` 迁移到 `McpServer` + `registerTool()` + Zod schema
+- 依赖: `@modelcontextprotocol/sdk ^1.12.0`, `zod ^3.25.0`
+- 规则检测使用字符串匹配（非 AST），后续可升级
+
+**创建的文件**:
+- `src/anel-copilot/package.json`
+- `src/anel-copilot/tsconfig.json`
+- `src/anel-copilot/src/index.ts` (MCP Server)
+- `src/anel-copilot/src/cli.ts` (CLI)
+- `src/anel-copilot/src/core/types.ts`
+- `src/anel-copilot/src/core/detector.ts`
+- `src/anel-copilot/src/core/rules.ts`
+- `src/anel-copilot/src/core/analyzer.ts`
+- `src/anel-copilot/src/core/generator.ts`
+- `src/anel-copilot/src/core/verifier.ts`
+- `src/anel-copilot/tests/` (4 test files + 2 fixture files)
+
 ## 待完成
 
-- Phase 9: ANEL Copilot 实施
 - Phase 7: Python 补充测试
 - Phase 8: Go 补充
+- anel-copilot 后续增强:
+  - LLM 智能代码修改模式（替代字符串匹配）
+  - AST 解析精确插入
+  - Claude Code Skill 形态
+  - npm 发布
 
 ## 构建命令
 
@@ -171,6 +203,11 @@ cd src/qmd-python && python -m pytest tests/ -v
 # Go
 cd src/qmd-go && go test ./internal/... -v
 
-# TypeScript
+# TypeScript (原版 QMD)
 cd src/qmd-typescript && bun test
+
+# ANEL Copilot
+cd src/anel-copilot && npm test        # 运行测试
+cd src/anel-copilot && npm run build   # 构建
+cd src/anel-copilot && node dist/cli.js analyze <file>  # CLI 分析
 ```
