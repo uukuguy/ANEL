@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { analyze } from "./core/analyzer.js";
-import { generateFix } from "./core/generator.js";
+import { generateFix, generateFixWithLlm } from "./core/generator.js";
 import { verify } from "./core/verifier.js";
+import { analyzeDirectory } from "./core/batch.js";
 import { detectFileInfo } from "./core/detector.js";
 import { readFile, writeFile } from "fs/promises";
 
@@ -22,13 +23,17 @@ async function main() {
 
     case "fix": {
       if (!args[0]) {
-        console.error("Usage: anel-copilot fix <file>");
+        console.error("Usage: anel-copilot fix <file> [--dry-run] [--llm]");
         process.exit(1);
       }
       const filePath = args[0];
       const code = await readFile(filePath, "utf-8");
       const fileInfo = detectFileInfo(filePath);
-      const modified = generateFix(code, fileInfo.language, fileInfo.framework);
+      const useLlm = args.includes("--llm");
+
+      const modified = useLlm
+        ? await generateFixWithLlm(code, fileInfo.language, filePath, fileInfo.framework, "llm")
+        : generateFix(code, fileInfo.language, fileInfo.framework);
 
       if (args.includes("--dry-run")) {
         console.log(modified);
@@ -49,13 +54,25 @@ async function main() {
       break;
     }
 
+    case "analyze-dir": {
+      if (!args[0]) {
+        console.error("Usage: anel-copilot analyze-dir <directory> [--no-recursive]");
+        process.exit(1);
+      }
+      const recursive = !args.includes("--no-recursive");
+      const result = await analyzeDirectory(args[0], { recursive });
+      console.log(JSON.stringify(result, null, 2));
+      break;
+    }
+
     default:
       console.log(`anel-copilot v1.0.0 - ANEL Protocol Copilot
 
 Usage:
-  anel-copilot analyze <file>          Analyze code for ANEL compliance
-  anel-copilot fix <file> [--dry-run]  Auto-fix code for ANEL compliance
-  anel-copilot verify <binary> <cmd>   Verify runtime ANEL compliance`);
+  anel-copilot analyze <file>              Analyze code for ANEL compliance
+  anel-copilot analyze-dir <dir>           Batch analyze directory
+  anel-copilot fix <file> [--dry-run] [--llm]  Auto-fix code for ANEL compliance
+  anel-copilot verify <binary> <cmd>       Verify runtime ANEL compliance`);
       break;
   }
 }

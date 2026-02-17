@@ -52,6 +52,7 @@ func init() {
 
 func handleSearch(cmd *cobra.Command, args []string) error {
     traceID := os.Getenv("AGENT_TRACE_ID")
+    identityToken := os.Getenv("AGENT_IDENTITY_TOKEN")
     emitSpec, _ := cmd.Flags().GetBool("emit-spec")
     dryRun, _ := cmd.Flags().GetBool("dry-run")
 

@@ -1,4 +1,6 @@
 import type { AnelRule, SupportedLanguage } from "./types.js";
+import { createLlmProvider } from "./llm.js";
+import { analyzeCode } from "./analyzer.js";
 
 interface FixContext {
   commandName?: string;
@@ -95,6 +97,14 @@ function applyGoFixes(code: string, framework: string | undefined, commandName: 
     );
   }
 
+  // Add AGENT_IDENTITY_TOKEN env var reading
+  if (!code.includes("AGENT_IDENTITY_TOKEN") && code.match(/func\s+handle\w+/)) {
+    modified = modified.replace(
+      /(func\s+handle\w+\([^)]*\)\s*error\s*\{)/,
+      `$1\n\tidentityToken := os.Getenv("AGENT_IDENTITY_TOKEN")`
+    );
+  }
+
   return modified;
 }
 
@@ -110,6 +120,14 @@ ${rustClapFlags}`
     );
   }
 
+  // Add AGENT_IDENTITY_TOKEN env var reading
+  if (!code.includes("AGENT_IDENTITY_TOKEN") && code.includes("fn main()")) {
+    modified = modified.replace(
+      /(fn main\(\)\s*\{)/,
+      `$1\n    let identity_token = std::env::var("AGENT_IDENTITY_TOKEN").unwrap_or_default();`
+    );
+  }
+
   return modified;
 }
 
@@ -120,6 +138,14 @@ function applyPythonFixes(code: string, framework: string | undefined, commandNa
     modified = modified.replace(
       /(@click\.command[^\n]*\n)/,
       `$1${pythonClickFlags}\n`
+    );
+  }
+
+  // Add AGENT_IDENTITY_TOKEN env var reading
+  if (!code.includes("AGENT_IDENTITY_TOKEN") && code.includes("def ")) {
+    modified = modified.replace(
+      /(def\s+\w+\([^)]*\):\s*\n)/,
+      `$1    identity_token = os.environ.get("AGENT_IDENTITY_TOKEN", "")\n`
     );
   }
 
@@ -139,5 +165,36 @@ function applyTypeScriptFixes(code: string, commandName: string): string {
     );
   }
 
+  // Add AGENT_IDENTITY_TOKEN env var reading
+  if (!code.includes("AGENT_IDENTITY_TOKEN") && code.includes(".action(")) {
+    modified = modified.replace(
+      /(\.action\(\s*(?:async\s*)?\([^)]*\)\s*=>\s*\{)/,
+      `$1\n    const identityToken = process.env.AGENT_IDENTITY_TOKEN ?? "";`
+    );
+  }
+
   return modified;
+}
+
+export async function generateFixWithLlm(
+  code: string,
+  language: SupportedLanguage,
+  filePath: string,
+  framework?: string,
+  mode: "template" | "llm" = "template"
+): Promise<string> {
+  const provider = createLlmProvider(mode);
+  const analysis = analyzeCode(code, filePath, language);
+  const missingIssues = analysis.issues.filter((i) => i.status !== "present");
+
+  if (missingIssues.length === 0) {
+    return code; // Already compliant
+  }
+
+  return provider.generateFix({
+    code,
+    language,
+    framework,
+    issues: missingIssues,
+  });
 }

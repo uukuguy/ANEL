@@ -1,7 +1,7 @@
 # Next Session Guide - ANEL Project
 
 **Last Updated**: 2026-02-18
-**Current Status**: Phase 1-6 完成，Phase 9 (ANEL Copilot) 完成，**anel-copilot MCP Server + CLI + 43 tests**
+**Current Status**: Phase 1-6 完成，Phase 9 (ANEL Copilot) 完成 + 增强 Phase A/B/C 完成，**anel-copilot MCP Server + CLI + 82 tests**
 **Branch**: dev
 
 ## 当前状态
@@ -181,15 +181,47 @@ vector:
 - `src/anel-copilot/src/core/verifier.ts`
 - `src/anel-copilot/tests/` (4 test files + 2 fixture files)
 
+### Phase 9 增强: anel-copilot Phase A/B/C ✅ (2026-02-18)
+
+**Phase A: 补全缺失规则 + 功能完善**
+- 新增 `output-format` (medium) 和 `env-vars` (medium) 规则，现共 7 条规则
+- MCP `anel_fix` 添加 `dryRun` 参数（预览修改不写入文件）
+- 新增 `batch.ts` 实现 `analyzeDirectory()`，支持递归扫描和扩展名过滤
+- 注册 `anel_analyze_dir` MCP 工具，CLI 添加 `analyze-dir` 命令
+- 更新 fixtures 添加 `AGENT_IDENTITY_TOKEN` 模式
+- 更新 generator 四种语言模板均添加 `AGENT_IDENTITY_TOKEN` env var 读取
+
+**Phase B: LLM 智能代码修改模式**
+- 新增 `llm.ts`: `LlmProvider` 接口 + `TemplateLlmProvider` + `AnthropicLlmProvider`
+- `AnthropicLlmProvider` 使用 fetch 调用 Anthropic Messages API，构造 ANEL 协议 system prompt
+- `createLlmProvider()` 工厂函数：llm 模式需要 `ANTHROPIC_API_KEY`，无 key 自动 fallback
+- MCP `anel_fix` 添加 `mode: "template" | "llm"` 参数
+- CLI `fix` 命令添加 `--llm` flag
+
+**Phase C: AST 解析升级**
+- tree-sitter 系列为 `optionalDependencies`（编译失败不影响功能）
+- 新增 `ast-detector.ts`: 动态 import 加载 tree-sitter，实现 Go/Rust/Python/TypeScript AST 检测
+- `analyzer.ts` 新增 `analyzeCodeWithAst()`: 优先 AST 检测，fallback 到字符串匹配
+
+**新增文件**:
+- `src/anel-copilot/src/core/batch.ts`
+- `src/anel-copilot/src/core/llm.ts`
+- `src/anel-copilot/src/core/ast-detector.ts`
+- `src/anel-copilot/tests/batch.test.ts`
+- `src/anel-copilot/tests/llm.test.ts`
+- `src/anel-copilot/tests/ast-detector.test.ts`
+
+**测试**: 7 个测试文件，82 tests 全部通过
+
 ## 待完成
 
 - Phase 7: Python 补充测试
 - Phase 8: Go 补充
 - anel-copilot 后续增强:
-  - LLM 智能代码修改模式（替代字符串匹配）
-  - AST 解析精确插入
   - Claude Code Skill 形态
   - npm 发布
+  - tree-sitter 在 CI 环境中的集成测试
+  - LLM 模式端到端测试（需要 API key）
 
 ## 构建命令
 

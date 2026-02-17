@@ -92,6 +92,32 @@ export const anelRules: AnelRuleDefinition[] = [
       suggestion: "Support AGENT_TRACE_ID environment variable for request correlation",
     }),
   },
+  {
+    name: "output-format",
+    description: "CLI must support --output-format flag for json/ndjson/text",
+    severity: "medium",
+    check: (code) => ({
+      rule: "output-format",
+      status: hasPattern(code, ["--output-format", "output-format", "output_format", "OutputFormat"])
+        ? "present"
+        : "missing",
+      severity: "medium",
+      suggestion: 'Add --output-format flag supporting json/ndjson/text',
+    }),
+  },
+  {
+    name: "env-vars",
+    description: "Support AGENT_IDENTITY_TOKEN environment variable for bearer auth",
+    severity: "medium",
+    check: (code) => ({
+      rule: "env-vars",
+      status: hasPattern(code, ["AGENT_IDENTITY_TOKEN", "identity_token", "IdentityToken"])
+        ? "present"
+        : "missing",
+      severity: "medium",
+      suggestion: "Support AGENT_IDENTITY_TOKEN environment variable for bearer auth",
+    }),
+  },
 ];
 
 function hasPattern(code: string, patterns: string[]): boolean {

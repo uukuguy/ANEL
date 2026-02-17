@@ -39,8 +39,18 @@ describe("AnelAnalyzer", () => {
       expect(issue?.status).toBe("missing");
     });
 
+    it("should detect missing output-format", () => {
+      const issue = result.issues.find((i) => i.rule === "output-format");
+      expect(issue?.status).toBe("missing");
+    });
+
+    it("should detect missing env-vars", () => {
+      const issue = result.issues.find((i) => i.rule === "env-vars");
+      expect(issue?.status).toBe("missing");
+    });
+
     it("should have low compliance score", () => {
-      expect(result.complianceScore).toBeLessThanOrEqual(5);
+      expect(result.complianceScore).toBe(0);
     });
 
     it("should detect cobra framework", () => {
@@ -73,6 +83,16 @@ describe("AnelAnalyzer", () => {
 
     it("should detect present trace-id", () => {
       const issue = result.issues.find((i) => i.rule === "trace-id");
+      expect(issue?.status).toBe("present");
+    });
+
+    it("should detect present output-format", () => {
+      const issue = result.issues.find((i) => i.rule === "output-format");
+      expect(issue?.status).toBe("present");
+    });
+
+    it("should detect present env-vars", () => {
+      const issue = result.issues.find((i) => i.rule === "env-vars");
       expect(issue?.status).toBe("present");
     });
 

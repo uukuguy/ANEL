@@ -33,6 +33,7 @@ struct SearchArgs {
 
 fn main() {
     let trace_id = std::env::var("AGENT_TRACE_ID").unwrap_or_default();
+    let identity_token = std::env::var("AGENT_IDENTITY_TOKEN").unwrap_or_default();
     let args = SearchArgs::parse();
 
     if args.emit_spec {

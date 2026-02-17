@@ -2,8 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { analyze } from "./core/analyzer.js";
-import { generateFix } from "./core/generator.js";
+import { generateFix, generateFixWithLlm } from "./core/generator.js";
 import { verify } from "./core/verifier.js";
+import { analyzeDirectory } from "./core/batch.js";
 import { readFile, writeFile } from "fs/promises";
 import { detectFileInfo } from "./core/detector.js";
 
@@ -40,12 +41,28 @@ server.registerTool(
         .array(z.string())
         .optional()
         .describe("Specific rules to apply (default: all)"),
+      dryRun: z.boolean().optional().describe("Preview changes without writing to file"),
+      mode: z.enum(["template", "llm"]).optional().describe("Fix mode: template (default) or llm (requires ANTHROPIC_API_KEY)"),
     },
   },
-  async ({ filePath, rules }) => {
+  async ({ filePath, rules, dryRun, mode }) => {
     const code = await readFile(filePath, "utf-8");
     const fileInfo = detectFileInfo(filePath);
-    const modified = generateFix(code, fileInfo.language, fileInfo.framework);
+
+    const modified = mode === "llm"
+      ? await generateFixWithLlm(code, fileInfo.language, filePath, fileInfo.framework, "llm")
+      : generateFix(code, fileInfo.language, fileInfo.framework);
+
+    if (dryRun) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ success: true, file: filePath, dryRun: true, content: modified }, null, 2),
+          },
+        ],
+      };
+    }
 
     await writeFile(filePath, modified);
 
@@ -56,6 +73,25 @@ server.registerTool(
           text: JSON.stringify({ success: true, file: filePath }, null, 2),
         },
       ],
+    };
+  }
+);
+
+server.registerTool(
+  "anel_analyze_dir",
+  {
+    title: "ANEL Analyze Directory",
+    description: "Batch analyze all code files in a directory for ANEL compliance",
+    inputSchema: {
+      dirPath: z.string().describe("Path to directory to analyze"),
+      recursive: z.boolean().optional().describe("Recursively scan subdirectories (default: true)"),
+      extensions: z.array(z.string()).optional().describe("File extensions to include (default: .go,.rs,.py,.ts,.js)"),
+    },
+  },
+  async ({ dirPath, recursive, extensions }) => {
+    const result = await analyzeDirectory(dirPath, { recursive, extensions });
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
     };
   }
 );
