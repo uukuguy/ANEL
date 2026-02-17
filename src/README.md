@@ -63,6 +63,23 @@ src/
     └── scripts/
         ├── verify_qmd_compat.sh
         └── compare_qmd_impls.sh
+
+├── anel-copilot/      # ANEL 协议合规助手 (MCP Server + CLI)
+│   ├── package.json
+│   ├── src/
+│   │   ├── index.ts       # MCP Server (6 tools)
+│   │   ├── cli.ts         # CLI 入口
+│   │   └── core/
+│   │       ├── types.ts       # 类型定义
+│   │       ├── rules.ts       # 7 条 ANEL 合规规则
+│   │       ├── analyzer.ts    # 代码分析引擎
+│   │       ├── detector.ts    # 语言/框架检测
+│   │       ├── generator.ts   # 自动修复代码生成
+│   │       ├── verifier.ts    # 运行时验证
+│   │       ├── batch.ts       # 批量目录分析
+│   │       ├── llm.ts         # LLM 智能修复 (Anthropic API)
+│   │       └── ast-detector.ts # AST 检测 (tree-sitter, optional)
+│   └── tests/             # 82 tests (vitest)
 ```
 
 ## 特性
@@ -121,6 +138,18 @@ cd qmd-typescript
 bun install
 bun link  # 链接为全局命令 qmd
 bun src/qmd.ts --help
+```
+
+### ANEL Copilot
+
+```bash
+cd anel-copilot
+npm install
+npm run build
+node dist/cli.js analyze <file>          # 分析 ANEL 合规性
+node dist/cli.js analyze-dir <dir>       # 批量分析目录
+node dist/cli.js fix <file> [--dry-run]  # 自动修复
+node dist/cli.js fix <file> --llm        # LLM 智能修复 (需要 ANTHROPIC_API_KEY)
 ```
 
 ## CLI 命令
@@ -235,6 +264,12 @@ models:
 
 - `emit_spec`: 输出 JSON Schema 规范
 - `dry_run`: 验证参数但不执行
+
+**ANEL Copilot** (`src/anel-copilot/`) 提供自动化合规检测和修复:
+- 7 条规则: emit-spec, dry-run, output-format, error-format, ndjson-output, trace-id, env-vars
+- 6 个 MCP 工具: anel_analyze, anel_analyze_dir, anel_fix, anel_verify, anel_explain
+- 支持 template 和 LLM 两种修复模式
+- 可选 tree-sitter AST 精确检测
 
 ### 兼容性
 
