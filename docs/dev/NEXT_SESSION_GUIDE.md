@@ -125,8 +125,37 @@ vector:
 - 在 README.md 和 README_CN.md 顶部添加架构蓝图和架构宣言链接
 - 新增英文版架构宣言 `docs/ANEL/ANEL-Architecture-Manifesto-v1.0.md`
 
+### ANEL Copilot 方案设计 ✅ (2026-02-18)
+
+**完成内容**:
+- 设计了无侵入式 ANEL 协议助手方案
+- 命名为 **anel-copilot**
+- 技术栈: TypeScript/Node.js
+- 核心功能: MCP Server、CLI、代码分析、自动修复、运行时验证
+
+**设计文档**:
+- `docs/plans/2026-02-18-anel-copilot.md`
+
+**方案要点**:
+- 四种形态: MCP Server、Skill、CLI、工具库
+- 四个 MCP 工具: anel_analyze, anel_fix, anel_verify, anel_explain
+- 自动修复: AI 分析后可直接修改代码，无需用户手动复制
+- 支持语言: Go (cobra/urfave), Rust (clap), Python (click), TypeScript
+
+**实施计划** (9 个任务):
+1. 项目搭建
+2. 测试基础设施
+3. 代码检测实现
+4. 规则分析器实现
+5. 代码生成器实现
+6. 自动修复集成
+7. 运行时验证器
+8. CLI 封装
+9. 文档和发布
+
 ## 待完成
 
+- Phase 9: ANEL Copilot 实施
 - Phase 7: Python 补充测试
 - Phase 8: Go 补充
 
