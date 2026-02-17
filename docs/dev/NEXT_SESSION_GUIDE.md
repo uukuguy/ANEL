@@ -68,6 +68,13 @@
 - `src/shared/README.md`
 - `src/CLAUDE.md`
 
+### 架构文档更新 ✅
+
+**新增内容**:
+- 添加 ANEL 架构蓝图图片（`imgs/ANEL-en.jpeg`, `imgs/ANEL-zh.jpeg`）
+- 在 README.md 和 README_CN.md 顶部添加架构蓝图和架构宣言链接
+- 新增英文版架构宣言 `docs/ANEL/ANEL-Architecture-Manifesto-v1.0.md`
+
 ## 待完成
 
 - Phase 7: Python 补充测试
